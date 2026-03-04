@@ -72,8 +72,8 @@ io.on('connection', (socket) => {
 const frontendDistPath = path.join(__dirname, '../frontend/dist');
 app.use(express.static(frontendDistPath));
 
-// Catch-all route to serve React app for client-side routing
-app.get('*', (req, res) => {
+// Catch-all route to serve React app for client-side routing (Express 5 compatible)
+app.get(/(.*)/, (req, res) => {
   res.sendFile(path.join(frontendDistPath, 'index.html'));
 });
 

@@ -26,6 +26,18 @@ export default function Pad() {
   // Swipe-to-undo/redo
   const [initialSwipeY, setInitialSwipeY] = useState(null);
 
+  // Portrait guard
+  const [isPortrait, setIsPortrait] = useState(
+    () => window.matchMedia('(orientation: portrait)').matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(orientation: portrait)');
+    const handler = (e) => setIsPortrait(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   useEffect(() => {
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
@@ -129,8 +141,21 @@ export default function Pad() {
   };
 
   return (
-    // Force landscape: full screen, row layout
-    <div className="flex flex-row h-screen w-screen overflow-hidden select-none touch-none bg-slate-950">
+    <>
+      {/* ── Portrait overlay ── */}
+      {isPortrait && (
+        <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center gap-6 select-none">
+          <div className="text-6xl animate-bounce">🔄</div>
+          <p className="text-white text-xl font-semibold tracking-wide">Rotate your phone</p>
+          <p className="text-slate-400 text-sm text-center px-8">
+            The pad works in <span className="text-blue-400 font-medium">landscape mode</span>.<br />
+            Turn your phone sideways to start drawing.
+          </p>
+        </div>
+      )}
+
+      {/* ── Pad (landscape) ── */}
+      <div className="flex flex-row h-screen w-screen overflow-hidden select-none touch-none bg-slate-950">
 
       {/* ── Left Drawer ── */}
       <div
@@ -316,5 +341,6 @@ export default function Pad() {
       </div>
 
     </div>
+    </>
   );
 }

@@ -369,9 +369,9 @@ export default function Board() {
 
       {/* Connected Badge — shown when pad joins */}
       {padConnected && (
-        <div className="absolute top-6 left-6 glass px-4 py-3 rounded-2xl flex items-center gap-3 z-10 border border-green-400/30">
-          <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-sm font-semibold text-green-400">Device Connected</span>
+        <div className="absolute top-4 left-4 glass px-2.5 py-1.5 rounded-full flex items-center gap-1.5 z-10 border border-green-400/30">
+          <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          <span className="text-xs font-medium text-green-400">Connected</span>
         </div>
       )}
 

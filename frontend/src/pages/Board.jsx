@@ -293,11 +293,21 @@ export default function Board() {
   // Toolbar icon/text color should contrast with the board background
   const isDark = bgColor === '#000000';
 
+  // Custom cursor
+  const [cursorPos, setCursorPos] = useState(null);
+  const cursorSize = Math.max(8, lineWidth);
+  const cursorColor = tool === 'eraser' ? bgColor : tool === 'pen' ? color : '#ef4444';
+
   return (
     <div className="relative w-screen h-screen overflow-hidden" style={{ backgroundColor: bgColor }}>
       
       {/* Canvas */}
-      <div className="absolute inset-0 cursor-crosshair">
+      <div
+        className="absolute inset-0"
+        style={{ cursor: 'none' }}
+        onMouseMove={(e) => setCursorPos({ x: e.clientX, y: e.clientY })}
+        onMouseLeave={() => setCursorPos(null)}
+      >
         <canvas
           ref={canvasRef}
           onMouseDown={startDrawing}
@@ -310,6 +320,27 @@ export default function Board() {
           className="w-full h-full touch-none"
         />
       </div>
+
+      {/* Custom Cursor */}
+      {cursorPos && (
+        <div
+          className="pointer-events-none fixed z-[200]"
+          style={{
+            left: cursorPos.x,
+            top: cursorPos.y,
+            transform: 'translate(-50%, -50%)',
+            width: cursorSize,
+            height: cursorSize,
+            borderRadius: '50%',
+            backgroundColor: tool === 'eraser' ? 'transparent' : cursorColor,
+            border: `2px solid ${isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)'}`,
+            boxShadow: isDark
+              ? '0 0 0 1px rgba(0,0,0,0.5)'
+              : '0 0 0 1px rgba(255,255,255,0.5)',
+            transition: 'width 0.1s, height 0.1s',
+          }}
+        />
+      )}
 
       {/* Stickies */}
       {stickies.map(sticky => (

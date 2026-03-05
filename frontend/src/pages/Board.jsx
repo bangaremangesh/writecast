@@ -18,6 +18,7 @@ export default function Board() {
   const [sessionId, setSessionId] = useState('');
   const [padConnected, setPadConnected] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const bgColorRef = useRef('#ffffff'); // Keep ref in sync for use in clearBoard
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -25,6 +26,12 @@ export default function Board() {
   const [lineWidth, setLineWidth] = useState(5);
   const [tool, setTool] = useState('pen'); // pen or eraser
   const [bgColor, setBgColor] = useState('#ffffff'); // default white background
+
+  // Keep ref in sync with state so clearBoard always has latest value
+  function applyBgColor(newColor) {
+    bgColorRef.current = newColor;
+    setBgColor(newColor);
+  }
   const [padUrl, setPadUrl] = useState('');
   const [laserPos, setLaserPos] = useState(null);
 
@@ -62,6 +69,15 @@ export default function Board() {
 
     return () => newSocket.close();
   }, []);
+
+  // Repaint canvas background whenever bgColor changes
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = contextRef.current;
+    if (!canvas || !ctx) return;
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
+  }, [bgColor]);
 
   // Initialize Canvas
   useEffect(() => {
@@ -219,8 +235,8 @@ export default function Board() {
   function clearBoard(emit = true) {
     const canvas = canvasRef.current;
     const ctx = contextRef.current;
-    ctx.fillStyle = bgColor;
-    // We must fill the entire actual canvas size
+    // Use ref to always get the latest bgColor (avoids stale closure)
+    ctx.fillStyle = bgColorRef.current;
     ctx.fillRect(0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
     saveHistoryState(canvas);
     
@@ -274,8 +290,11 @@ export default function Board() {
     };
   };
 
+  // Toolbar icon/text color should contrast with the board background
+  const isDark = bgColor === '#000000';
+
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-900" style={{ backgroundColor: bgColor }}>
+    <div className="relative w-screen h-screen overflow-hidden" style={{ backgroundColor: bgColor }}>
       
       {/* Canvas */}
       <div className="absolute inset-0 cursor-crosshair">
@@ -357,7 +376,11 @@ export default function Board() {
       )}
 
       {/* Floating Toolbar */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass px-6 py-4 rounded-full flex items-center gap-4 z-10">
+      <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-4 rounded-full flex items-center gap-4 z-10 shadow-xl border ${
+        isDark
+          ? 'bg-slate-900/90 border-slate-700 text-slate-100'
+          : 'bg-white/90 border-slate-200 text-slate-800'
+      } backdrop-blur-md`}>
         
         <button 
           onClick={() => setTool('pen')} 
@@ -394,7 +417,7 @@ export default function Board() {
         <div className="flex items-center gap-1 p-1 bg-slate-200/60 dark:bg-slate-700/60 rounded-full" title="Board Background">
           <button
             onClick={() => {
-              setBgColor('#ffffff');
+              applyBgColor('#ffffff');
               if (socket) socket.emit('change-bg', { sessionId, color: '#ffffff' });
             }}
             className={`w-7 h-7 rounded-full border-2 transition-all ${
@@ -404,7 +427,7 @@ export default function Board() {
           />
           <button
             onClick={() => {
-              setBgColor('#000000');
+              applyBgColor('#000000');
               if (socket) socket.emit('change-bg', { sessionId, color: '#000000' });
             }}
             className={`w-7 h-7 rounded-full border-2 transition-all ${

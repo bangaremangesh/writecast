@@ -551,6 +551,18 @@ export default function Board() {
         </div>
       )}
 
+      {/* Shape Sub-menu (rendered outside toolbar to prevent clipping) */}
+      {tool === 'shape' && (
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-50 p-2 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl flex items-center gap-2 border border-slate-200 dark:border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+          <button title="Rectangle" onClick={() => setShapeType('rect')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Square className="w-5 h-5" /></button>
+          <button title="Circle" onClick={() => setShapeType('circle')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'circle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Circle className="w-5 h-5" /></button>
+          <button title="Triangle" onClick={() => setShapeType('triangle')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'triangle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Triangle className="w-5 h-5" /></button>
+          <button title="Line" onClick={() => setShapeType('line')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'line' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Minus className="w-5 h-5" /></button>
+          <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-2" />
+          <button title="Toggle Fill" onClick={() => setShapeFill(v => !v)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 border border-transparent'}`}><PaintBucket className="w-4 h-4" />{shapeFill ? 'Filled' : 'Outline'}</button>
+        </div>
+      )}
+
       {/* Floating Toolbar */}
       <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-4 rounded-full flex items-center gap-4 z-10 shadow-xl border ${
         isDark
@@ -560,7 +572,7 @@ export default function Board() {
         
         <button 
           onClick={() => setTool('pen')} 
-          className={`p-3 rounded-full transition-colors ${tool === 'pen' ? 'bg-blue-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+          className={`p-3 rounded-full transition-colors ${tool === 'pen' ? 'bg-blue-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
           title="Pen"
         >
           <Pen className="w-5 h-5" />
@@ -568,7 +580,7 @@ export default function Board() {
 
         <button 
           onClick={() => setTool('eraser')}
-          className={`p-3 rounded-full transition-colors ${tool === 'eraser' ? 'bg-blue-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+          className={`p-3 rounded-full transition-colors ${tool === 'eraser' ? 'bg-slate-600 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
           title="Eraser"
         >
           <Eraser className="w-5 h-5" />
@@ -576,33 +588,19 @@ export default function Board() {
 
         <button 
           onClick={() => setTool('text')}
-          className={`p-3 rounded-full transition-colors ${tool === 'text' ? 'bg-emerald-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400'}`}
+          className={`p-3 rounded-full transition-colors ${tool === 'text' ? 'bg-emerald-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400'}`}
           title="Text"
         >
           <Type className="w-5 h-5" />
         </button>
 
-        <div className="relative">
-          <button 
-            onClick={() => setTool('shape')}
-            className={`p-3 rounded-full flex gap-1 items-center transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
-            title="Shapes"
-          >
-            <Shapes className="w-5 h-5" />
-          </button>
-          {/* Shape Sub-menu */}
-          {tool === 'shape' && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 p-2 bg-white dark:bg-slate-800 rounded-xl shadow-2xl flex items-center gap-2 border border-slate-200 dark:border-slate-700 animate-in fade-in slide-in-from-bottom-2">
-              <button title="Rectangle" onClick={() => setShapeType('rect')} className={`p-2 rounded-lg transition-colors ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Square className="w-4 h-4" /></button>
-              <button title="Circle" onClick={() => setShapeType('circle')} className={`p-2 rounded-lg transition-colors ${shapeType === 'circle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Circle className="w-4 h-4" /></button>
-              <button title="Triangle" onClick={() => setShapeType('triangle')} className={`p-2 rounded-lg transition-colors ${shapeType === 'triangle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Triangle className="w-4 h-4" /></button>
-              <button title="Line" onClick={() => setShapeType('line')} className={`p-2 rounded-lg transition-colors ${shapeType === 'line' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Minus className="w-4 h-4" /></button>
-              <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
-              <button title="Toggle Fill" onClick={() => setShapeFill(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 border border-transparent'}`}><PaintBucket className="w-3.5 h-3.5" />{shapeFill ? 'Filled' : 'Outline'}</button>
-            </div>
-          )}
-        </div>
-
+        <button 
+          onClick={() => setTool('shape')}
+          className={`p-3 rounded-full flex gap-1 items-center transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
+          title="Shapes"
+        >
+          <Shapes className="w-5 h-5" />
+        </button>
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
 

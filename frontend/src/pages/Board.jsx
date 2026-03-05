@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone } from 'lucide-react';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
 // In production, the socket connects to the same host serving the frontend.
@@ -24,8 +24,15 @@ export default function Board() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState('#000000'); // Default pen color: black
   const [lineWidth, setLineWidth] = useState(5);
-  const [tool, setTool] = useState('pen'); // pen or eraser
+  const [tool, setTool] = useState('pen'); // pen, eraser, text, shape
   const [bgColor, setBgColor] = useState('#ffffff'); // default white background
+  
+  // Board specific tool state
+  const [shapeType, setShapeType] = useState('rect');
+  const [shapeFill, setShapeFill] = useState(false);
+  const [textInput, setTextInput] = useState('');
+  const [textPos, setTextPos] = useState(null);
+  const textInputRef = useRef(null);
 
   // Keep ref in sync with state so clearBoard always has latest value
   function applyBgColor(newColor) {
@@ -165,11 +172,25 @@ export default function Board() {
 
   function startDrawing(e) {
     const { x, y, normalizedX, normalizedY } = getCoordinates(e);
-    contextRef.current.beginPath();
-    contextRef.current.moveTo(x, y);
+
+    if (tool === 'text') {
+      setTextPos({ x: normalizedX, y: normalizedY });
+      setTextInput('');
+      setTimeout(() => textInputRef.current?.focus(), 60);
+      return;
+    }
+
     setIsDrawing(true);
     
-    // Emit to socket
+    if (tool === 'shape') {
+      shapePreviewRef.current = { shape: shapeType, x1: x, y1: y, x2: x, y2: y, color, lineWidth, fill: shapeFill };
+      if (socket) socket.emit('shape-start', { sessionId, shape: shapeType, x: normalizedX, y: normalizedY, color, lineWidth, fill: shapeFill });
+      return;
+    }
+
+    // Default pen/eraser
+    contextRef.current.beginPath();
+    contextRef.current.moveTo(x, y);
     if (socket) {
       socket.emit('draw-start', { sessionId, x: normalizedX, y: normalizedY, color: tool === 'eraser' ? bgColor : color, lineWidth });
     }
@@ -179,6 +200,20 @@ export default function Board() {
     if (!isDrawing) return;
     const { x, y, normalizedX, normalizedY } = getCoordinates(e);
     
+    if (tool === 'shape') {
+      const s = shapePreviewRef.current;
+      if (!s) return;
+      s.x2 = x; s.y2 = y;
+      const pc = previewCanvasRef.current;
+      if (!pc) return;
+      const pctx = pc.getContext('2d');
+      pctx.clearRect(0, 0, pc.width, pc.height);
+      drawShapeOnCtx(pctx, s);
+      if (socket) socket.emit('shape-preview', { sessionId, x2: normalizedX, y2: normalizedY });
+      return;
+    }
+
+    // Default pen/eraser
     contextRef.current.strokeStyle = tool === 'eraser' ? bgColor : color;
     contextRef.current.lineWidth = lineWidth;
     contextRef.current.lineTo(x, y);
@@ -190,16 +225,46 @@ export default function Board() {
   };
 
   function stopDrawing() {
-    if (isDrawing) {
-      contextRef.current.closePath();
-      setIsDrawing(false);
-      saveHistoryState(canvasRef.current);
-      
-      if (socket) {
-        socket.emit('draw-end', { sessionId });
+    if (!isDrawing) return;
+    setIsDrawing(false);
+
+    if (tool === 'shape') {
+      const s = shapePreviewRef.current;
+      if (s) {
+        drawShapeOnCtx(contextRef.current, s);
+        const pc = previewCanvasRef.current;
+        if (pc) pc.getContext('2d').clearRect(0, 0, pc.width, pc.height);
+        saveHistoryState(canvasRef.current);
+        shapePreviewRef.current = null;
+        if (socket) socket.emit('shape-end', { sessionId });
       }
+      return;
+    }
+
+    // Default pen/eraser
+    contextRef.current.closePath();
+    saveHistoryState(canvasRef.current);
+    if (socket) {
+      socket.emit('draw-end', { sessionId });
     }
   };
+
+  function submitText() {
+    if (textInput.trim() && textPos) {
+      const newLabel = {
+        id: Math.random().toString(36).substr(2, 9),
+        text: textInput.trim(),
+        x: textPos.x,
+        y: textPos.y,
+        color,
+        fontSize: 20,
+      };
+      setTexts(prev => [...prev, newLabel]);
+      if (socket) socket.emit('add-text', { sessionId, ...newLabel });
+    }
+    setTextPos(null);
+    setTextInput('');
+  }
 
   // Listen for socket events from Pad
   useEffect(() => {
@@ -370,6 +435,26 @@ export default function Board() {
         <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
       </div>
 
+      {/* Text input overlay for Board */}
+      {textPos && (
+        <div className="absolute z-50" style={{ left: `${textPos.x * 100}%`, top: `${textPos.y * 100}%`, transform: 'translate(-50%,-50%)' }}>
+          <input
+            ref={textInputRef}
+            type="text"
+            value={textInput}
+            onChange={e => setTextInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') submitText();
+              if (e.key === 'Escape') { setTextPos(null); setTextInput(''); }
+            }}
+            onBlur={submitText}
+            style={{ touchAction: 'auto', pointerEvents: 'auto' }}
+            className="bg-white/90 dark:bg-slate-900/90 border border-blue-500/60 text-slate-900 dark:text-white text-base px-3 py-2 rounded-xl outline-none w-52 shadow-2xl"
+            placeholder="Type & press Enter…"
+          />
+        </div>
+      )}
+
       {/* Custom Cursor */}
       {cursorPos && (
         <div
@@ -483,6 +568,34 @@ export default function Board() {
         >
           <Eraser className="w-5 h-5" />
         </button>
+
+        <button 
+          onClick={() => setTool('text')}
+          className={`p-3 rounded-full transition-colors ${tool === 'text' ? 'bg-emerald-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400'}`}
+          title="Text"
+        >
+          <Type className="w-5 h-5" />
+        </button>
+
+        <div className="relative group">
+          <button 
+            onClick={() => setTool('shape')}
+            className={`p-3 rounded-full transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
+            title="Shapes"
+          >
+            {shapeType === 'rect' ? <Square className="w-5 h-5" /> : shapeType === 'circle' ? <Circle className="w-5 h-5" /> : <Minus className="w-5 h-5" />}
+          </button>
+          {/* Shape Sub-menu */}
+          {tool === 'shape' && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl flex items-center gap-2 border border-slate-200 dark:border-slate-700">
+              <button onClick={() => setShapeType('rect')} className={`p-2 rounded-lg ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Square className="w-4 h-4" /></button>
+              <button onClick={() => setShapeType('circle')} className={`p-2 rounded-lg ${shapeType === 'circle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Circle className="w-4 h-4" /></button>
+              <button onClick={() => setShapeType('line')} className={`p-2 rounded-lg ${shapeType === 'line' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Minus className="w-4 h-4" /></button>
+              <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+              <button onClick={() => setShapeFill(v => !v)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><PaintBucket className="w-3 h-3" />{shapeFill ? 'Fill' : 'Outl'}</button>
+            </div>
+          )}
+        </div>
 
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />

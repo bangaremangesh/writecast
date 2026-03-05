@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
 import { Pen, Eraser, Download, Trash2, Undo2, Redo2, MonitorPlay, StickyNote, X } from 'lucide-react';
@@ -11,9 +12,11 @@ const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.
 export default function Board() {
   const canvasRef = useRef(null);
   const contextRef = useRef(null);
+  const [searchParams] = useSearchParams();
   
   const [socket, setSocket] = useState(null);
   const [sessionId, setSessionId] = useState('');
+  const [padConnected, setPadConnected] = useState(false);
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -32,10 +35,14 @@ export default function Board() {
   const [stickies, setStickies] = useState([]);
 
   useEffect(() => {
-    // Generate a random session ID
-    const newSessionId = Math.random().toString(36).substring(2, 8);
+    // Use pre-established session from ?session= param, or generate a new one
+    const preSession = searchParams.get('session');
+    const newSessionId = preSession || Math.random().toString(36).substring(2, 8);
     setSessionId(newSessionId);
     
+    // If arriving via Connect Device flow, pad is already connected
+    if (preSession) setPadConnected(true);
+
     // Construct the URL for the pad
     const url = `${window.location.origin}/pad/${newSessionId}`;
     setPadUrl(url);
@@ -46,6 +53,10 @@ export default function Board() {
 
     newSocket.on('connect', () => {
       newSocket.emit('join-session', { sessionId: newSessionId, role: 'board' });
+    });
+
+    newSocket.on('participant-joined', ({ role }) => {
+      if (role === 'pad') setPadConnected(true);
     });
 
     return () => newSocket.close();
@@ -320,19 +331,29 @@ export default function Board() {
         />
       )}
 
-      {/* QR Code Overlay */}
-      <div className="absolute top-6 left-6 glass p-4 rounded-2xl flex items-center gap-4 z-10 transition-transform hover:scale-105">
-        <div className="bg-white p-2 rounded-xl">
-          {padUrl && <QRCode value={padUrl} size={80} level="H" />}
-        </div>
-        <div>
-          <h3 className="font-bold text-lg text-slate-800 dark:text-white">Join via Phone</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Scan to turn your phone<br/>into a drawing pad.</p>
-          <div className="mt-2 text-xs font-mono bg-slate-200 dark:bg-slate-700 p-1 rounded text-center">
-            ID: {sessionId}
+      {/* QR Code Overlay — hidden when pad is already connected */}
+      {!padConnected && (
+        <div className="absolute top-6 left-6 glass p-4 rounded-2xl flex items-center gap-4 z-10 transition-transform hover:scale-105">
+          <div className="bg-white p-2 rounded-xl">
+            {padUrl && <QRCode value={padUrl} size={80} level="H" />}
+          </div>
+          <div>
+            <h3 className="font-bold text-lg text-slate-800 dark:text-white">Join via Phone</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Scan to turn your phone<br/>into a drawing pad.</p>
+            <div className="mt-2 text-xs font-mono bg-slate-200 dark:bg-slate-700 p-1 rounded text-center">
+              ID: {sessionId}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Connected Badge — shown when pad joins */}
+      {padConnected && (
+        <div className="absolute top-6 left-6 glass px-4 py-3 rounded-2xl flex items-center gap-3 z-10 border border-green-400/30">
+          <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
+          <span className="text-sm font-semibold text-green-400">Device Connected</span>
+        </div>
+      )}
 
       {/* Floating Toolbar */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 glass px-6 py-4 rounded-full flex items-center gap-4 z-10">

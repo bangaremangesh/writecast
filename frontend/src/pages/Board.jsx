@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, MonitorPlay, StickyNote, X, Smartphone } from 'lucide-react';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
 // In production, the socket connects to the same host serving the frontend.
@@ -38,9 +38,15 @@ export default function Board() {
   // History for Undo/Redo
   const [history, setHistory] = useState([]);
   const [redoList, setRedoList] = useState([]);
+  const historyRef = useRef([]);
 
-  // Stickies
-  const [stickies, setStickies] = useState([]);
+  // Text labels
+  const [texts, setTexts] = useState([]);
+  const selectedTextRef = useRef(null); // { id, offsetX, offsetY }
+
+  // Shape preview
+  const previewCanvasRef = useRef(null);
+  const shapePreviewRef  = useRef(null);
 
   useEffect(() => {
     // Use pre-established session from ?session= param, or generate a new one
@@ -79,37 +85,66 @@ export default function Board() {
     ctx.fillRect(0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
   }, [bgColor]);
 
-  // Initialize Canvas
+  // Initialize Canvas + Preview Canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const parent = canvas.parentElement;
-    canvas.width = parent.clientWidth * window.devicePixelRatio;
-    canvas.height = parent.clientHeight * window.devicePixelRatio;
-    canvas.style.width = `${parent.clientWidth}px`;
-    canvas.style.height = `${parent.clientHeight}px`;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
+    const dpr = window.devicePixelRatio;
+
+    canvas.width  = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width  = `${w}px`;
+    canvas.style.height = `${h}px`;
 
     const ctx = canvas.getContext('2d');
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    ctx.lineCap = 'round';
+    ctx.scale(dpr, dpr);
+    ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
-    
-    // Fill background
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
+    ctx.lineWidth   = lineWidth;
+    ctx.fillStyle   = bgColor;
+    ctx.fillRect(0, 0, w, h);
     contextRef.current = ctx;
-    
-    // Save initial state to history
+
+    // Preview canvas (no DPR scaling — CSS-pixel drawing for shapes)
+    const pc = previewCanvasRef.current;
+    if (pc) {
+      pc.width  = w; pc.height = h;
+      pc.style.width  = `${w}px`;
+      pc.style.height = `${h}px`;
+    }
+
     saveHistoryState(canvas);
   }, []);
 
   function saveHistoryState(canvas) {
-    setHistory(prev => [...prev, canvas.toDataURL()]);
-    setRedoList([]); // Clear redo on new action
+    const url = canvas.toDataURL();
+    historyRef.current = [...historyRef.current, url];
+    setHistory(historyRef.current);
+    setRedoList([]);
+  }
+
+  // Shape drawing helper (used for preview and commit)
+  function drawShapeOnCtx(ctx, { shape, x1, y1, x2, y2, color: c, lineWidth: lw, fill }) {
+    ctx.beginPath();
+    ctx.strokeStyle = c;
+    ctx.lineWidth   = lw;
+    if (fill) ctx.fillStyle = c;
+    if (shape === 'rect') {
+      ctx.rect(x1, y1, x2 - x1, y2 - y1);
+    } else if (shape === 'circle') {
+      const rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2;
+      ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, rx, ry, 0, 0, Math.PI * 2);
+    } else if (shape === 'line') {
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    }
+    ctx.stroke();
+    if (fill && shape !== 'line') ctx.fill();
+    ctx.closePath();
   }
 
   function getCoordinates(e) {
@@ -170,65 +205,84 @@ export default function Board() {
   useEffect(() => {
     if (!socket || !contextRef.current || !canvasRef.current) return;
 
-    socket.on('draw-start', (data) => {
-      const { x, y, color: drawColor, lineWidth: drawWidth } = data;
-      const canvas = canvasRef.current;
-      const actualX = x * canvas.clientWidth;
-      const actualY = y * canvas.clientHeight;
-      
-      contextRef.current.beginPath();
-      contextRef.current.moveTo(actualX, actualY);
-      contextRef.current.strokeStyle = drawColor;
-      contextRef.current.lineWidth = drawWidth;
-    });
+    const c  = canvasRef.current;
+    const ctx = contextRef.current;
 
-    socket.on('draw', (data) => {
-      const { x, y, color: drawColor, lineWidth: drawWidth } = data;
-      const canvas = canvasRef.current;
-      const actualX = x * canvas.clientWidth;
-      const actualY = y * canvas.clientHeight;
-      
-      contextRef.current.strokeStyle = drawColor;
-      contextRef.current.lineWidth = drawWidth;
-      contextRef.current.lineTo(actualX, actualY);
-      contextRef.current.stroke();
-    });
+    const ax = nx => nx * c.clientWidth;
+    const ay = ny => ny * c.clientHeight;
 
-    socket.on('draw-end', () => {
-      contextRef.current.closePath();
-      saveHistoryState(canvasRef.current);
+    socket.on('draw-start', ({ x, y, color: dc, lineWidth: dw }) => {
+      ctx.beginPath(); ctx.moveTo(ax(x), ay(y));
+      ctx.strokeStyle = dc; ctx.lineWidth = dw;
     });
-
-    socket.on('clear-board', () => {
-      clearBoard(false);
-      setStickies([]); // optionally clear stickies on clear board
+    socket.on('draw', ({ x, y, color: dc, lineWidth: dw }) => {
+      ctx.strokeStyle = dc; ctx.lineWidth = dw;
+      ctx.lineTo(ax(x), ay(y)); ctx.stroke();
     });
+    socket.on('draw-end', () => { ctx.closePath(); saveHistoryState(c); });
 
-    socket.on('laser-start', (data) => setLaserPos({ x: data.x, y: data.y }));
-    socket.on('laser-move', (data) => setLaserPos({ x: data.x, y: data.y }));
-    socket.on('laser-end', () => setLaserPos(null));
+    socket.on('clear-board', () => { clearBoard(false); setTexts([]); });
 
-    socket.on('undo', () => handleUndo());
-    socket.on('redo', () => handleRedo());
-    socket.on('add-sticky', (data) => {
-      setStickies(prev => [...prev, data]);
+    socket.on('laser-start', d => setLaserPos({ x: d.x, y: d.y }));
+    socket.on('laser-move',  d => setLaserPos({ x: d.x, y: d.y }));
+    socket.on('laser-end',    () => setLaserPos(null));
+
+    socket.on('undo', handleUndo);
+    socket.on('redo', handleRedo);
+
+    // ── Text events ──
+    socket.on('add-text', data => setTexts(prev => [...prev, data]));
+    socket.on('text-move-start', ({ x, y }) => {
+      setTexts(prev => {
+        if (!prev.length) return prev;
+        // Find closest text
+        let best = prev[0], bestDist = Infinity;
+        prev.forEach(t => {
+          const d = Math.hypot(t.x - x, t.y - y);
+          if (d < bestDist) { bestDist = d; best = t; }
+        });
+        selectedTextRef.current = { id: best.id, offsetX: x - best.x, offsetY: y - best.y };
+        return prev;
+      });
     });
-    socket.on('remove-sticky', (data) => {
-      setStickies(prev => prev.filter(s => s.id !== data.id));
+    socket.on('text-move', ({ x, y }) => {
+      const sel = selectedTextRef.current;
+      if (!sel) return;
+      setTexts(prev => prev.map(t =>
+        t.id === sel.id ? { ...t, x: x - sel.offsetX, y: y - sel.offsetY } : t
+      ));
+    });
+    socket.on('text-move-end', () => { selectedTextRef.current = null; });
+
+    // ── Shape events ──
+    socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {
+      shapePreviewRef.current = { shape, x1: ax(x), y1: ay(y), x2: ax(x), y2: ay(y), color: sc, lineWidth: sw, fill };
+    });
+    socket.on('shape-preview', ({ x2, y2 }) => {
+      const s = shapePreviewRef.current;
+      if (!s) return;
+      s.x2 = ax(x2); s.y2 = ay(y2);
+      const pc = previewCanvasRef.current;
+      if (!pc) return;
+      const pctx = pc.getContext('2d');
+      pctx.clearRect(0, 0, pc.width, pc.height);
+      drawShapeOnCtx(pctx, s);
+    });
+    socket.on('shape-end', () => {
+      const s = shapePreviewRef.current;
+      if (!s) return;
+      drawShapeOnCtx(ctx, s);
+      const pc = previewCanvasRef.current;
+      if (pc) pc.getContext('2d').clearRect(0, 0, pc.width, pc.height);
+      saveHistoryState(c);
+      shapePreviewRef.current = null;
     });
 
     return () => {
-      socket.off('draw-start');
-      socket.off('draw');
-      socket.off('draw-end');
-      socket.off('clear-board');
-      socket.off('laser-start');
-      socket.off('laser-move');
-      socket.off('laser-end');
-      socket.off('undo');
-      socket.off('redo');
-      socket.off('add-sticky');
-      socket.off('remove-sticky');
+      ['draw-start','draw','draw-end','clear-board','laser-start','laser-move',
+       'laser-end','undo','redo','add-text','text-move-start','text-move',
+       'text-move-end','shape-start','shape-preview','shape-end'
+      ].forEach(ev => socket.off(ev));
     };
   }, [socket, history, redoList]);
 
@@ -256,15 +310,14 @@ export default function Board() {
 
   // Undo/Redo logic (simplified)
   function handleUndo() {
-    if (history.length > 1) {
-      const newHistory = [...history];
-      const currentState = newHistory.pop(); // Remove current
-      setRedoList(prev => [...prev, currentState]);
-      
-      const previousState = newHistory[newHistory.length - 1];
-      setHistory(newHistory);
-      
-      restoreCanvas(previousState);
+    const h = historyRef.current;
+    if (h.length > 1) {
+      const next = [...h];
+      const cur = next.pop();
+      setRedoList(prev => [...prev, cur]);
+      historyRef.current = next;
+      setHistory(next);
+      restoreCanvas(next[next.length - 1]);
     }
   };
 
@@ -305,20 +358,16 @@ export default function Board() {
       <div
         className="absolute inset-0"
         style={{ cursor: 'none' }}
-        onMouseMove={(e) => setCursorPos({ x: e.clientX, y: e.clientY })}
+        onMouseMove={e => setCursorPos({ x: e.clientX, y: e.clientY })}
         onMouseLeave={() => setCursorPos(null)}
       >
-        <canvas
-          ref={canvasRef}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseOut={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
+        <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw}
+          onMouseUp={stopDrawing} onMouseOut={stopDrawing}
+          onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
           className="w-full h-full touch-none"
         />
+        {/* Shape preview layer */}
+        <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
       </div>
 
       {/* Custom Cursor */}
@@ -342,31 +391,37 @@ export default function Board() {
         />
       )}
 
-      {/* Stickies */}
-      {stickies.map(sticky => (
-        <div 
-          key={sticky.id}
-          className="absolute z-[80] shadow-xl p-4 rotate-2 hover:rotate-0 transition-transform cursor-pointer"
-          style={{ 
-            left: `${sticky.x * 100}%`, 
-            top: `${sticky.y * 100}%`,
-            backgroundColor: sticky.color || '#fef08a',
-            width: '200px',
-            minHeight: '150px'
+      {/* Text Labels */}
+      {texts.map(tl => (
+        <div
+          key={tl.id}
+          className="absolute z-[80] select-none cursor-move font-semibold drop-shadow-md"
+          style={{
+            left: `${tl.x * 100}%`,
+            top:  `${tl.y * 100}%`,
+            color: tl.color || '#000000',
+            fontSize: `${tl.fontSize || 20}px`,
+            transform: 'translate(-50%, -50%)',
+            whiteSpace: 'nowrap',
           }}
+          onMouseDown={e => {
+            const startX = e.clientX, startY = e.clientY;
+            const startTX = tl.x, startTY = tl.y;
+            const cw = canvasRef.current?.clientWidth  || window.innerWidth;
+            const ch = canvasRef.current?.clientHeight || window.innerHeight;
+            const onMove = mv => setTexts(prev => prev.map(t =>
+              t.id === tl.id
+                ? { ...t, x: startTX + (mv.clientX - startX) / cw, y: startTY + (mv.clientY - startY) / ch }
+                : t
+            ));
+            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+          }}
+          onDoubleClick={() => setTexts(prev => prev.filter(t => t.id !== tl.id))}
+          title="Drag to move · double-click to delete"
         >
-          <button 
-            onClick={() => {
-              setStickies(prev => prev.filter(s => s.id !== sticky.id));
-              if(socket) socket.emit('remove-sticky', { sessionId, id: sticky.id });
-            }}
-            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow hover:scale-110"
-          >
-            <X className="w-3 h-3" />
-          </button>
-          <div className="font-medium text-slate-800 break-words whitespace-pre-wrap">
-            {sticky.text}
-          </div>
+          {tl.text}
         </div>
       ))}
 
@@ -429,18 +484,6 @@ export default function Board() {
           <Eraser className="w-5 h-5" />
         </button>
 
-        <button 
-          onClick={() => {
-            const id = Math.random().toString(36).substr(2, 9);
-            const newSticky = { id, text: 'New Note', x: 0.5, y: 0.5, color: '#fef08a' };
-            setStickies(prev => [...prev, newSticky]);
-            if(socket) socket.emit('add-sticky', { sessionId, ...newSticky });
-          }}
-          className="p-3 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-yellow-500"
-          title="Add Sticky Note"
-        >
-          <StickyNote className="w-5 h-5" />
-        </button>
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
 

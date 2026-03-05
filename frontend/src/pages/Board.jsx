@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket } from 'lucide-react';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
 // In production, the socket connects to the same host serving the frontend.
@@ -146,12 +146,17 @@ export default function Board() {
     } else if (shape === 'circle') {
       const rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2;
       ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, rx, ry, 0, 0, Math.PI * 2);
+    } else if (shape === 'triangle') {
+      ctx.moveTo((x1 + x2) / 2, y1);
+      ctx.lineTo(x1, y2);
+      ctx.lineTo(x2, y2);
+      ctx.closePath();
     } else if (shape === 'line') {
       ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
     }
     ctx.stroke();
     if (fill && shape !== 'line') ctx.fill();
-    ctx.closePath();
+    if (shape !== 'triangle') ctx.closePath();
   }
 
   function getCoordinates(e) {
@@ -577,22 +582,23 @@ export default function Board() {
           <Type className="w-5 h-5" />
         </button>
 
-        <div className="relative group">
+        <div className="relative">
           <button 
             onClick={() => setTool('shape')}
-            className={`p-3 rounded-full transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
+            className={`p-3 rounded-full flex gap-1 items-center transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
             title="Shapes"
           >
-            {shapeType === 'rect' ? <Square className="w-5 h-5" /> : shapeType === 'circle' ? <Circle className="w-5 h-5" /> : <Minus className="w-5 h-5" />}
+            <Shapes className="w-5 h-5" />
           </button>
           {/* Shape Sub-menu */}
           {tool === 'shape' && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 p-2 bg-white dark:bg-slate-800 rounded-xl shadow-xl flex items-center gap-2 border border-slate-200 dark:border-slate-700">
-              <button onClick={() => setShapeType('rect')} className={`p-2 rounded-lg ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Square className="w-4 h-4" /></button>
-              <button onClick={() => setShapeType('circle')} className={`p-2 rounded-lg ${shapeType === 'circle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Circle className="w-4 h-4" /></button>
-              <button onClick={() => setShapeType('line')} className={`p-2 rounded-lg ${shapeType === 'line' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Minus className="w-4 h-4" /></button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 p-2 bg-white dark:bg-slate-800 rounded-xl shadow-2xl flex items-center gap-2 border border-slate-200 dark:border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+              <button title="Rectangle" onClick={() => setShapeType('rect')} className={`p-2 rounded-lg transition-colors ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Square className="w-4 h-4" /></button>
+              <button title="Circle" onClick={() => setShapeType('circle')} className={`p-2 rounded-lg transition-colors ${shapeType === 'circle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Circle className="w-4 h-4" /></button>
+              <button title="Triangle" onClick={() => setShapeType('triangle')} className={`p-2 rounded-lg transition-colors ${shapeType === 'triangle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Triangle className="w-4 h-4" /></button>
+              <button title="Line" onClick={() => setShapeType('line')} className={`p-2 rounded-lg transition-colors ${shapeType === 'line' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}><Minus className="w-4 h-4" /></button>
               <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
-              <button onClick={() => setShapeFill(v => !v)} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700'}`}><PaintBucket className="w-3 h-3" />{shapeFill ? 'Fill' : 'Outl'}</button>
+              <button title="Toggle Fill" onClick={() => setShapeFill(v => !v)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 border border-transparent'}`}><PaintBucket className="w-3.5 h-3.5" />{shapeFill ? 'Filled' : 'Outline'}</button>
             </div>
           )}
         </div>

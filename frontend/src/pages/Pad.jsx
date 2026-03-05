@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import {
   Pen, Eraser, Trash2, Crosshair, Circle,
   Undo2, Redo2, Type, Square, Minus,
-  SlidersHorizontal, PaintBucket,
+  SlidersHorizontal, PaintBucket, Triangle
 } from 'lucide-react';
 
 const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.hostname}:3001`;
@@ -222,22 +222,23 @@ export default function Pad() {
           {tool === 'shape' && (
             <>
               <p className="text-xs text-slate-500 uppercase tracking-widest px-1">Shape</p>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5 flex-wrap">
                 {[
-                  { id: 'rect',   icon: <Square className="w-4 h-4" />, label: 'Rect'   },
-                  { id: 'circle', icon: <Circle className="w-4 h-4" />, label: 'Circle' },
-                  { id: 'line',   icon: <Minus  className="w-4 h-4" />, label: 'Line'   },
+                  { id: 'rect',   icon: <Square className="w-4 h-4" />,   label: 'Rect'   },
+                  { id: 'circle', icon: <Circle className="w-4 h-4" />,   label: 'Circle' },
+                  { id: 'triangle',icon: <Triangle className="w-4 h-4" />,label: 'Tri' },
+                  { id: 'line',   icon: <Minus  className="w-4 h-4" />,   label: 'Line'   },
                 ].map(s => (
                   <button key={s.id} onClick={() => setShapeType(s.id)}
-                    className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-xl text-xs transition-all ${
+                    className={`flex-1 min-w-[35px] flex flex-col items-center gap-1 py-2 rounded-xl text-xs transition-all ${
                       shapeType === s.id ? 'bg-purple-600 text-white shadow-md' : 'text-slate-400 bg-slate-800 hover:bg-slate-700'
                     }`}
                   >{s.icon}{s.label}</button>
                 ))}
               </div>
               <button onClick={() => setShapeFill(v => !v)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                  shapeFill ? 'bg-purple-600/30 border border-purple-500/40 text-purple-300' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  shapeFill ? 'bg-purple-600/30 border border-purple-500/40 text-purple-300' : 'bg-slate-800 text-slate-400 hover:bg-slate-700 border border-transparent'
                 }`}
               >
                 <PaintBucket className="w-4 h-4" /> {shapeFill ? 'Filled' : 'Outline'}

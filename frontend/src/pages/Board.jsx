@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, MonitorPlay, StickyNote, X } from 'lucide-react';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, MonitorPlay, StickyNote, X, Smartphone } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
 // In production, the socket connects to the same host serving the frontend.
@@ -17,6 +17,7 @@ export default function Board() {
   const [socket, setSocket] = useState(null);
   const [sessionId, setSessionId] = useState('');
   const [padConnected, setPadConnected] = useState(false);
+  const [showQR, setShowQR] = useState(false);
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -331,8 +332,8 @@ export default function Board() {
         />
       )}
 
-      {/* QR Code Overlay — hidden when pad is already connected */}
-      {!padConnected && (
+      {/* QR Code Overlay — only shown when user opens it and pad not yet connected */}
+      {showQR && !padConnected && (
         <div className="absolute top-6 left-6 glass p-4 rounded-2xl flex items-center gap-4 z-10 transition-transform hover:scale-105">
           <div className="bg-white p-2 rounded-xl">
             {padUrl && <QRCode value={padUrl} size={80} level="H" />}
@@ -435,6 +436,17 @@ export default function Board() {
         </button>
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+        {/* Connect Phone toggle */}
+        {!padConnected && (
+          <button
+            onClick={() => setShowQR(v => !v)}
+            className={`p-3 rounded-full transition-colors ${showQR ? 'bg-indigo-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+            title="Connect Phone"
+          >
+            <Smartphone className="w-5 h-5" />
+          </button>
+        )}
 
         <button onClick={handleExport} className="p-3 bg-slate-900 border border-slate-700 dark:bg-white dark:text-slate-900 text-white rounded-full hover:scale-105 transition-transform shadow-lg" title="Export PNG">
           <Download className="w-5 h-5" />

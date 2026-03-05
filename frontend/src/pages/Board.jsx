@@ -21,10 +21,10 @@ export default function Board() {
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
-  const [color, setColor] = useState('#ffffff'); // Default light mode stroke could be dark, let's use a standard default
+  const [color, setColor] = useState('#000000'); // Default pen color: black
   const [lineWidth, setLineWidth] = useState(5);
   const [tool, setTool] = useState('pen'); // pen or eraser
-  const [bgColor, setBgColor] = useState('#0f172a'); // default dark background
+  const [bgColor, setBgColor] = useState('#ffffff'); // default white background
   const [padUrl, setPadUrl] = useState('');
   const [laserPos, setLaserPos] = useState(null);
 
@@ -390,15 +390,27 @@ export default function Board() {
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
 
-        <div className="flex flex-col items-center gap-1" title="Background Color">
-          <input 
-            type="color" 
-            value={bgColor} 
-            onChange={(e) => { 
-              setBgColor(e.target.value); 
-              if (socket) socket.emit('change-bg', { sessionId, color: e.target.value }); 
+        {/* Background Color Toggle: White / Black */}
+        <div className="flex items-center gap-1 p-1 bg-slate-200/60 dark:bg-slate-700/60 rounded-full" title="Board Background">
+          <button
+            onClick={() => {
+              setBgColor('#ffffff');
+              if (socket) socket.emit('change-bg', { sessionId, color: '#ffffff' });
             }}
-            className="w-6 h-6 rounded-full overflow-hidden cursor-pointer"
+            className={`w-7 h-7 rounded-full border-2 transition-all ${
+              bgColor === '#ffffff' ? 'border-blue-500 scale-110' : 'border-slate-300 dark:border-slate-600'
+            } bg-white`}
+            title="White Board"
+          />
+          <button
+            onClick={() => {
+              setBgColor('#000000');
+              if (socket) socket.emit('change-bg', { sessionId, color: '#000000' });
+            }}
+            className={`w-7 h-7 rounded-full border-2 transition-all ${
+              bgColor === '#000000' ? 'border-blue-500 scale-110' : 'border-slate-300 dark:border-slate-600'
+            } bg-black`}
+            title="Black Board"
           />
         </div>
 

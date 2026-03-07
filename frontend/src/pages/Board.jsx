@@ -495,11 +495,16 @@ export default function Board() {
     // Keyboard support for selecting & deleting
     const onKeyDown = (e) => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        const activeObj = fc.getActiveObject();
+        // If the user is currently typing text inside the canvas, let Backspace behave normally
+        if (activeObj && activeObj.isEditing) {
+          return;
+        }
+        
         if (tool === 'select' && document.activeElement.tagName !== 'INPUT') {
           const actives = fc.getActiveObjects();
           if (actives.length) {
             actives.forEach(a => {
-              if (a.isEditing) return; // don't delete if we are inside text
               fc.remove(a);
             });
             fc.discardActiveObject();
@@ -895,6 +900,40 @@ export default function Board() {
         <button onClick={handleZoomIn} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors" title="Zoom In">
           <ZoomIn className="w-5 h-5" />
         </button>
+      </div>
+
+      {/* Connection Modal */}
+      <div className={`fixed inset-0 flex items-center justify-center transition-all duration-300 z-50 ${
+        showQR ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'
+      }`}>
+        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowQR(false)}></div>
+        
+        <div className={`relative p-8 rounded-[2rem] shadow-2xl border flex flex-col items-center gap-5 transform transition-transform duration-300 ${
+           showQR ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
+        } ${
+          isDark 
+            ? 'bg-slate-900 border-slate-700' 
+            : 'bg-white border-slate-200'
+        }`}>
+          <div className="bg-white p-5 rounded-3xl shadow-inner border border-slate-100">
+            <QRCode value={padUrl} size={180} />
+          </div>
+          
+          <div className="text-center space-y-2">
+            <h3 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>
+              Connect Phone
+            </h3>
+            <p className={`text-sm max-w-[220px] leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Scan this QR code or visit <br/><strong className="text-blue-500 select-all">{window.location.host}/pad</strong><br/> to use your phone as a trackpad.
+            </p>
+          </div>
+
+          <button onClick={() => setShowQR(false)} className={`mt-2 w-full py-3.5 rounded-2xl font-semibold transition-all active:scale-95 ${
+            isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+          }`}>
+            Dismiss
+          </button>
+        </div>
       </div>
 
     </div>

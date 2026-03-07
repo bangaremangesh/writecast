@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus, ImagePlus } from 'lucide-react';
 import * as fabric from 'fabric';
 import jsPDF from 'jspdf';
 
@@ -13,6 +13,7 @@ const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.
 export default function Board() {
   const canvasRef = useRef(null);
   const fabricRef = useRef(null);
+  const fileInputRef = useRef(null);
   const [searchParams] = useSearchParams();
   
   const [socket, setSocket] = useState(null);
@@ -68,6 +69,44 @@ export default function Board() {
     fc.setViewportTransform([1, 0, 0, 1, 0, 0]);
     setZoom(1);
     fc.requestRenderAll();
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (f) => {
+      const data = f.target.result;
+      fabric.Image.fromURL(data).then((img) => {
+        const fc = fabricRef.current;
+        if (!fc) return;
+        
+        const maxWidth = fc.width * 0.8;
+        const maxHeight = fc.height * 0.8;
+        
+        if (img.width > maxWidth || img.height > maxHeight) {
+           const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
+           img.scale(scale);
+        }
+        
+        fc.centerObject(img);
+        img.set({ selectable: true, evented: true });
+        fc.add(img);
+        fc.setActiveObject(img);
+        fc.requestRenderAll();
+        saveHistoryState(fc);
+        setTool('select'); // Automatically shift to select mode so they can resize
+        
+        if (socket) {
+          // If we want socket syncing of images, emitting raw base64 data might be too heavy, 
+          // but we will do it via object JSON for now.
+          socket.emit('object:added', { sessionId, obj: img.toJSON() });
+        }
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset input so same file can be selected again
   };
 
   // --- Multi-Page Functions ---
@@ -714,6 +753,21 @@ export default function Board() {
         >
           <Shapes className="w-4 h-4" />
         </button>
+
+        <button 
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-pink-600 dark:text-pink-400 transition-colors"
+          title="Add Image"
+        >
+          <ImagePlus className="w-4 h-4" />
+        </button>
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          accept="image/*" 
+          onChange={handleImageUpload} 
+          className="hidden" 
+        />
 
         <div className="h-px w-6 bg-slate-300 dark:bg-slate-600 my-0.5" />
 

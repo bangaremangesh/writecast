@@ -354,6 +354,8 @@ export default function Board() {
     if (tool === 'pen' || tool === 'eraser') {
       fc.isDrawingMode = true;
       fc.selection = false;
+      fc.defaultCursor = 'crosshair';
+      fc.hoverCursor = 'crosshair';
       
       const brush = new fabric.PencilBrush(fc);
       brush.color = tool === 'eraser' ? bgColorRef.current : color;
@@ -364,12 +366,23 @@ export default function Board() {
     } else if (tool === 'select') {
       fc.isDrawingMode = false;
       fc.selection = true;
+      fc.defaultCursor = 'default';
+      fc.hoverCursor = 'move';
+      fc.moveCursor = 'move';
       fc.getObjects().forEach(o => o.set({ selectable: true, evented: true }));
       fc.requestRenderAll();
-    } else {
-      // shape or text tools
+    } else if (tool === 'text') {
       fc.isDrawingMode = false;
       fc.selection = false;
+      fc.defaultCursor = 'text';
+      fc.hoverCursor = 'text';
+      fc.getObjects().forEach(o => o.set({ selectable: false, evented: false }));
+    } else {
+      // shape tools
+      fc.isDrawingMode = false;
+      fc.selection = false;
+      fc.defaultCursor = 'crosshair';
+      fc.hoverCursor = 'crosshair';
       fc.getObjects().forEach(o => o.set({ selectable: false, evented: false }));
     }
     
@@ -664,7 +677,17 @@ export default function Board() {
   return (
     <div className="relative w-screen h-screen overflow-hidden" style={{ backgroundColor: bgColor }}>
       
-      <div className="absolute inset-0">
+      <div className="absolute inset-0" style={{
+        cursor: tool === 'pen' || tool === 'eraser'
+          ? 'crosshair'
+          : tool === 'select'
+          ? 'default'
+          : tool === 'text'
+          ? 'text'
+          : tool === 'shape'
+          ? 'crosshair'
+          : 'default'
+      }}>
         <canvas ref={canvasRef} className="w-full h-full touch-none" />
       </div>
 

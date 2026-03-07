@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import * as fabric from 'fabric';
+import jsPDF from 'jspdf';
 
 // In production, the socket connects to the same host serving the frontend.
 // In development, it connects to the local dev server hostname.
@@ -31,6 +32,10 @@ export default function Board() {
   const [shapeFill, setShapeFill] = useState(false);
   const [padUrl, setPadUrl] = useState('');
   const [laserPos, setLaserPos] = useState(null);
+
+  // Multi-page state
+  const [pages, setPages] = useState([{ id: 0, state: null }]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
 
   // History state for simpler fabric canvas manipulation
   const [history, setHistory] = useState([]);
@@ -64,6 +69,62 @@ export default function Board() {
     setZoom(1);
     fc.requestRenderAll();
   };
+
+  // --- Multi-Page Functions ---
+  function saveCurrentPage() {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    const json = fc.toJSON();
+    setPages(prev => {
+      const newPages = [...prev];
+      newPages[currentPageIndex] = { ...newPages[currentPageIndex], state: json };
+      return newPages;
+    });
+  }
+
+  function loadPage(index) {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    
+    // Save current before switching
+    saveCurrentPage();
+
+    const targetPage = pages[index];
+    if (targetPage && targetPage.state) {
+      fc.loadFromJSON(targetPage.state, () => {
+        fc.backgroundColor = bgColorRef.current;
+        fc.requestRenderAll();
+        // Reset history purely for the new page view session
+        setHistory([targetPage.state]);
+        setRedoList([]);
+        setCurrentPageIndex(index);
+      });
+    } else {
+      fc.clear();
+      fc.backgroundColor = bgColorRef.current;
+      fc.requestRenderAll();
+      setHistory([fc.toJSON()]);
+      setRedoList([]);
+      setCurrentPageIndex(index);
+    }
+  }
+
+  function handleAddPage() {
+    saveCurrentPage();
+    const newIndex = pages.length;
+    setPages(prev => [...prev, { id: newIndex, state: null }]);
+    
+    // Switch to the newly created blank page
+    const fc = fabricRef.current;
+    if (fc) {
+      fc.clear();
+      fc.backgroundColor = bgColorRef.current;
+      fc.requestRenderAll();
+      setHistory([fc.toJSON()]);
+      setRedoList([]);
+      setCurrentPageIndex(newIndex);
+    }
+  }
 
   // --- Helper Functions ---
   function saveHistoryState(fc) {
@@ -113,14 +174,58 @@ export default function Board() {
     }
   }
 
-  function handleExport() {
+  async function handleExport() {
     const fc = fabricRef.current;
-    if (fc) {
-      const dataUrl = fc.toDataURL({ format: 'png', multiplier: 2 });
-      const link = document.createElement('a');
-      link.download = `WriteCast-${sessionId}.png`;
-      link.href = dataUrl;
-      link.click();
+    if (!fc) return;
+
+    // Save current active screen state
+    saveCurrentPage();
+
+    if (pages.length <= 1) {
+       // Single page: standard PNG
+       const dataUrl = fc.toDataURL({ format: 'png', multiplier: 2 });
+       const link = document.createElement('a');
+       link.download = `WriteCast-${sessionId}.png`;
+       link.href = dataUrl;
+       link.click();
+    } else {
+       // Multiple pages: PDF
+       const pdf = new jsPDF({
+         orientation: fc.width > fc.height ? 'landscape' : 'portrait',
+         unit: 'px',
+         format: [fc.width, fc.height]
+       });
+
+       // We temporarily load each page into the canvas to get its image representation
+       // Since users want their PDF instantly, we await the rendering callback.
+       for (let i = 0; i < pages.length; i++) {
+         const p = pages[i];
+         const pageState = i === currentPageIndex ? fc.toJSON() : p.state;
+
+         await new Promise((resolve) => {
+           if (!pageState) {
+             fc.clear();
+             fc.backgroundColor = bgColorRef.current;
+             fc.requestRenderAll();
+             resolve();
+           } else {
+             fc.loadFromJSON(pageState, () => {
+               fc.backgroundColor = bgColorRef.current;
+               fc.requestRenderAll();
+               resolve();
+             });
+           }
+         });
+
+         const dataUrl = fc.toDataURL({ format: 'png', multiplier: 1.5 });
+         if (i > 0) pdf.addPage([fc.width, fc.height], fc.width > fc.height ? 'landscape' : 'portrait');
+         pdf.addImage(dataUrl, 'PNG', 0, 0, fc.width, fc.height);
+       }
+
+       pdf.save(`WriteCast-Notes-${sessionId}.pdf`);
+
+       // Restore back the original view
+       loadPage(currentPageIndex);
     }
   }
 
@@ -676,10 +781,49 @@ export default function Board() {
           </button>
         )}
 
-        <button onClick={handleExport} className="p-2.5 bg-slate-900 border border-slate-700 dark:bg-white dark:text-slate-900 text-white rounded-full hover:scale-105 transition-transform shadow-lg mt-1" title="Export PNG">
+        <button onClick={handleExport} className="p-2.5 bg-slate-900 border border-slate-700 dark:bg-white dark:text-slate-900 text-white rounded-full hover:scale-105 transition-transform shadow-lg mt-1" title={pages.length > 1 ? "Export PDF" : "Export PNG"}>
           <Download className="w-4 h-4" />
         </button>
 
+      </div>
+
+      {/* Pages Navigation */}
+      <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-full flex items-center gap-4 z-10 shadow-xl border ${
+        isDark
+          ? 'bg-slate-900/90 border-slate-700 text-slate-100'
+          : 'bg-white/90 border-slate-200 text-slate-800'
+      } backdrop-blur-md`}>
+        <button 
+          onClick={() => loadPage(currentPageIndex - 1)} 
+          disabled={currentPageIndex === 0}
+          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-30" 
+          title="Previous Page"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        
+        <span className="text-sm font-semibold tracking-wide w-16 text-center">
+          {currentPageIndex + 1} / {pages.length}
+        </span>
+
+        <button 
+          onClick={() => loadPage(currentPageIndex + 1)} 
+          disabled={currentPageIndex === pages.length - 1}
+          className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors disabled:opacity-30" 
+          title="Next Page"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+
+        <div className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1" />
+
+        <button 
+          onClick={handleAddPage} 
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors text-sm font-medium shadow-sm"
+          title="Add New Page"
+        >
+          <Plus className="w-4 h-4" /> Add
+        </button>
       </div>
 
       {/* Zoom Widget */}

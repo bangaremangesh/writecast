@@ -553,18 +553,18 @@ export default function Board() {
       )}
 
       {tool === 'shape' && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-50 p-2 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl flex items-center gap-2 border border-slate-200 dark:border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+        <div className="absolute left-24 top-1/2 -translate-y-1/2 z-50 p-2 bg-white dark:bg-slate-800 rounded-3xl shadow-2xl flex flex-col items-center gap-2 border border-slate-200 dark:border-slate-700 animate-in fade-in slide-in-from-left-2">
           <button title="Rectangle" onClick={() => setShapeType('rect')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Square className="w-5 h-5" /></button>
           <button title="Circle" onClick={() => setShapeType('circle')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'circle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Circle className="w-5 h-5" /></button>
           <button title="Triangle" onClick={() => setShapeType('triangle')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'triangle' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Triangle className="w-5 h-5" /></button>
           <button title="Line" onClick={() => setShapeType('line')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'line' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Minus className="w-5 h-5" /></button>
-          <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-2" />
-          <button title="Toggle Fill" onClick={() => setShapeFill(v => !v)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 border border-transparent'}`}><PaintBucket className="w-4 h-4" />{shapeFill ? 'Filled' : 'Outline'}</button>
+          <div className="h-px w-8 bg-slate-300 dark:bg-slate-600 my-2" />
+          <button title="Toggle Fill" onClick={() => setShapeFill(v => !v)} className={`flex flex-col items-center gap-1 px-2 py-3 rounded-xl text-[10px] uppercase tracking-wider font-bold transition-colors ${shapeFill ? 'bg-purple-100 text-purple-700 dark:bg-purple-500/30 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 border border-transparent'}`}><PaintBucket className="w-4 h-4" />{shapeFill ? 'Filled' : 'Outline'}</button>
         </div>
       )}
 
       {/* Floating Toolbar */}
-      <div className={`absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-4 rounded-full flex items-center gap-4 z-10 shadow-xl border ${
+      <div className={`absolute top-1/2 left-4 -translate-y-1/2 px-2.5 py-4 rounded-full flex flex-col items-center gap-3 z-10 shadow-xl border ${
         isDark
           ? 'bg-slate-900/90 border-slate-700 text-slate-100'
           : 'bg-white/90 border-slate-200 text-slate-800'
@@ -572,64 +572,64 @@ export default function Board() {
         
         <button 
           onClick={() => setTool('select')} 
-          className={`p-3 rounded-full flex gap-1 items-center transition-colors ${tool === 'select' ? 'bg-amber-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-amber-600 dark:text-amber-400'}`}
+          className={`p-2 rounded-full flex gap-1 items-center transition-colors ${tool === 'select' ? 'bg-amber-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-amber-600 dark:text-amber-400'}`}
           title="Select/Move"
         >
-          <MousePointer2 className="w-5 h-5" />
+          <MousePointer2 className="w-4 h-4" />
         </button>
 
         <button 
           onClick={() => setTool('pen')} 
-          className={`p-3 rounded-full transition-colors ${tool === 'pen' ? 'bg-blue-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+          className={`p-2 rounded-full transition-colors ${tool === 'pen' ? 'bg-blue-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
           title="Pen"
         >
-          <Pen className="w-5 h-5" />
+          <Pen className="w-4 h-4" />
         </button>
 
         <button 
           onClick={() => setTool('eraser')}
-          className={`p-3 rounded-full transition-colors ${tool === 'eraser' ? 'bg-slate-600 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+          className={`p-2 rounded-full transition-colors ${tool === 'eraser' ? 'bg-slate-600 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
           title="Eraser"
         >
-          <Eraser className="w-5 h-5" />
+          <Eraser className="w-4 h-4" />
         </button>
 
         <button 
           onClick={() => setTool('text')}
-          className={`p-3 rounded-full transition-colors ${tool === 'text' ? 'bg-emerald-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400'}`}
+          className={`p-2 rounded-full transition-colors ${tool === 'text' ? 'bg-emerald-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400'}`}
           title="Text"
         >
-          <Type className="w-5 h-5" />
+          <Type className="w-4 h-4" />
         </button>
 
         <button 
           onClick={() => setTool('shape')}
-          className={`p-3 rounded-full flex gap-1 items-center transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
+          className={`p-2 rounded-full flex gap-1 items-center transition-colors ${tool === 'shape' ? 'bg-purple-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400'}`}
           title="Shapes"
         >
-          <Shapes className="w-5 h-5" />
+          <Shapes className="w-4 h-4" />
         </button>
 
-        <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
+        <div className="h-px w-6 bg-slate-300 dark:bg-slate-600 my-0.5" />
 
-        <div className="flex items-center gap-1 p-1 bg-slate-200/60 dark:bg-slate-700/60 rounded-full" title="Board Background">
+        <div className="flex flex-col items-center gap-1.5 p-1 bg-slate-200/60 dark:bg-slate-700/60 rounded-full" title="Board Background">
           <button
             onClick={() => applyBgColor('#ffffff')}
-            className={`w-7 h-7 rounded-full border-2 transition-all ${
+            className={`w-5 h-5 rounded-full border-2 transition-all ${
               bgColor === '#ffffff' ? 'border-blue-500 scale-110' : 'border-slate-300 dark:border-slate-600'
             } bg-white`}
             title="White Board"
           />
           <button
             onClick={() => applyBgColor('#000000')}
-            className={`w-7 h-7 rounded-full border-2 transition-all ${
+            className={`w-5 h-5 rounded-full border-2 transition-all ${
               bgColor === '#000000' ? 'border-blue-500 scale-110' : 'border-slate-300 dark:border-slate-600'
             } bg-black`}
             title="Black Board"
           />
         </div>
 
-        <div className="flex flex-col items-center gap-1" title="Color">
+        <div className="flex flex-col items-center gap-1 pt-0.5" title="Color">
           <input 
             type="color" 
             value={color} 
@@ -638,44 +638,46 @@ export default function Board() {
           />
         </div>
 
-        <input 
-          type="range" 
-          min="1" 
-          max="50" 
-          value={lineWidth} 
-          onChange={(e) => setLineWidth(e.target.value)}
-          className="w-24 accent-blue-500 cursor-pointer"
-          title="Size"
-        />
+        <div className="py-8 flex items-center justify-center w-full relative">
+          <input 
+            type="range" 
+            min="1" 
+            max="50" 
+            value={lineWidth} 
+            onChange={(e) => setLineWidth(e.target.value)}
+            className="w-20 accent-blue-500 cursor-pointer absolute -rotate-90"
+            title="Size"
+          />
+        </div>
 
-        <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
+        <div className="h-px w-6 bg-slate-300 dark:bg-slate-600 my-0.5" />
 
-        <button onClick={handleUndo} disabled={history.length <= 1} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full disabled:opacity-50 transition-colors" title="Undo">
-          <Undo2 className="w-5 h-5" />
+        <button onClick={handleUndo} disabled={history.length <= 1} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full disabled:opacity-50 transition-colors" title="Undo">
+          <Undo2 className="w-4 h-4" />
         </button>
         
-        <button onClick={handleRedo} disabled={redoList.length === 0} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full disabled:opacity-50 transition-colors" title="Redo">
-          <Redo2 className="w-5 h-5" />
+        <button onClick={handleRedo} disabled={redoList.length === 0} className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full disabled:opacity-50 transition-colors" title="Redo">
+          <Redo2 className="w-4 h-4" />
         </button>
 
-        <button onClick={() => handleClear(true)} className="p-2 hover:bg-red-500/20 text-red-500 rounded-full transition-colors" title="Clear Board">
-          <Trash2 className="w-5 h-5" />
+        <button onClick={() => handleClear(true)} className="p-1.5 hover:bg-red-500/20 text-red-500 rounded-full transition-colors" title="Clear Board">
+          <Trash2 className="w-4 h-4" />
         </button>
 
-        <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
+        <div className="h-px w-6 bg-slate-300 dark:bg-slate-600 my-0.5" />
 
         {!padConnected && (
           <button
             onClick={() => setShowQR(v => !v)}
-            className={`p-3 rounded-full transition-colors ${showQR ? 'bg-indigo-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+            className={`p-2 rounded-full transition-colors ${showQR ? 'bg-indigo-500 text-white' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
             title="Connect Phone"
           >
-            <Smartphone className="w-5 h-5" />
+            <Smartphone className="w-4 h-4" />
           </button>
         )}
 
-        <button onClick={handleExport} className="p-3 bg-slate-900 border border-slate-700 dark:bg-white dark:text-slate-900 text-white rounded-full hover:scale-105 transition-transform shadow-lg" title="Export PNG">
-          <Download className="w-5 h-5" />
+        <button onClick={handleExport} className="p-2.5 bg-slate-900 border border-slate-700 dark:bg-white dark:text-slate-900 text-white rounded-full hover:scale-105 transition-transform shadow-lg mt-1" title="Export PNG">
+          <Download className="w-4 h-4" />
         </button>
 
       </div>

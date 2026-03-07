@@ -33,15 +33,27 @@ export default function Pad() {
   const textInputRef  = useRef(null);
   const textGestureRef = useRef({ x: 0, y: 0, moved: false, moveStarted: false });
 
+  // Use refs for high-frequency drawing state to avoid React re-renders mid-stroke
+  const isDrawingRef   = useRef(false);
+  const rafPendingRef  = useRef(false);   // throttle flag for requestAnimationFrame
+  const padRectRef     = useRef(null);    // cached bounding rect during a stroke
+  const socketRef      = useRef(null);    // mirror of socket for use in touch handlers
+  const toolRef        = useRef('pen');   // mirror of tool for use in touch handlers
+  const colorRef       = useRef('#000000');
+  const lineWidthRef   = useRef(5);
+  const bgColorRef2    = useRef('#ffffff');
+  const shapeTypeRef   = useRef('rect');
+  const shapeFillRef   = useRef(false);
+  const sessionIdRef   = useRef(null);
+  const initialSwipeYRef = useRef(null);
+
   const [socket, setSocket]         = useState(null);
   const [color, setColor]           = useState('#000000');
   const [lineWidth, setLineWidth]   = useState(5);
   const [tool, setTool]             = useState('pen');
-  const [isDrawing, setIsDrawing]   = useState(false);
   const [bgColor, setBgColor]       = useState('#ffffff');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [moreOpen, setMoreOpen]     = useState(false);
-  const [initialSwipeY, setInitialSwipeY] = useState(null);
   const [isPortrait, setIsPortrait] = useState(
     () => window.matchMedia('(orientation: portrait)').matches
   );
@@ -58,24 +70,34 @@ export default function Pad() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
+  // Keep refs in sync with state
+  useEffect(() => { toolRef.current = tool; }, [tool]);
+  useEffect(() => { colorRef.current = color; }, [color]);
+  useEffect(() => { lineWidthRef.current = lineWidth; }, [lineWidth]);
+  useEffect(() => { bgColorRef2.current = bgColor; }, [bgColor]);
+  useEffect(() => { shapeTypeRef.current = shapeType; }, [shapeType]);
+  useEffect(() => { shapeFillRef.current = shapeFill; }, [shapeFill]);
+
   // Socket
   useEffect(() => {
     const s = io(SOCKET_URL);
     setSocket(s);
+    socketRef.current = s;
     s.on('connect', () => s.emit('join-session', { sessionId, role: 'pad' }));
     s.on('change-bg', ({ color: c }) => setBgColor(c));
     return () => s.close();
   }, [sessionId]);
+
+  // Keep sessionIdRef in sync
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
   // Close panels when tool changes
   useEffect(() => {
     setMoreOpen(false);
   }, [tool]);
 
-  const norm = e => {
-    const pad = padRef.current;
-    if (!pad) return { x: 0, y: 0 };
-    const rect = pad.getBoundingClientRect();
+  // Fast normalise — uses cached rect to avoid layout reflow on every touchmove
+  const norm = (e, rect) => {
     const t = e.touches[0];
     return {
       x: Math.max(0, Math.min(1, (t.clientX - rect.left) / rect.width)),
@@ -85,67 +107,105 @@ export default function Pad() {
 
   const handleTouchStart = e => {
     if (e.touches.length === 3) { handleClear(); return; }
-    if (e.touches.length === 2) { setInitialSwipeY(e.touches[0].clientY); setIsDrawing(false); return; }
+    if (e.touches.length === 2) {
+      initialSwipeYRef.current = e.touches[0].clientY;
+      isDrawingRef.current = false;
+      return;
+    }
 
-    const { x, y } = norm(e);
+    // Cache bounding rect once per stroke (avoids layout reflow on every move)
+    padRectRef.current = padRef.current?.getBoundingClientRect() ?? null;
+    if (!padRectRef.current) return;
 
-    if (tool === 'text') {
+    const { x, y } = norm(e, padRectRef.current);
+
+    if (toolRef.current === 'text') {
       textGestureRef.current = { x, y, moved: false, moveStarted: false };
       return;
     }
-    if (tool === 'select') return; // select mode handled by board
+    if (toolRef.current === 'select') return;
 
-    setIsDrawing(true);
-    if (!socket) return;
+    isDrawingRef.current = true;
+    const s = socketRef.current;
+    const sid = sessionIdRef.current;
+    if (!s) return;
 
-    if (tool === 'laser') {
-      socket.emit('laser-start', { sessionId, x, y });
-    } else if (tool === 'shape') {
-      socket.emit('shape-start', { sessionId, shape: shapeType, x, y, color, lineWidth, fill: shapeFill });
+    if (toolRef.current === 'laser') {
+      s.emit('laser-start', { sessionId: sid, x, y });
+    } else if (toolRef.current === 'shape') {
+      s.emit('shape-start', { sessionId: sid, shape: shapeTypeRef.current, x, y, color: colorRef.current, lineWidth: lineWidthRef.current, fill: shapeFillRef.current });
     } else {
-      socket.emit('draw-start', { sessionId, x, y, color: tool === 'eraser' ? bgColor : color, lineWidth });
+      s.emit('draw-start', { sessionId: sid, x, y, color: toolRef.current === 'eraser' ? bgColorRef2.current : colorRef.current, lineWidth: lineWidthRef.current });
     }
   };
 
   const handleTouchMove = e => {
-    if (e.touches.length === 2 && initialSwipeY !== null) {
-      const dy = initialSwipeY - e.touches[0].clientY;
+    if (e.touches.length === 2 && initialSwipeYRef.current !== null) {
+      const dy = initialSwipeYRef.current - e.touches[0].clientY;
       if (Math.abs(dy) > 80) {
-        if (socket) socket.emit(dy > 0 ? 'undo' : 'redo', { sessionId });
+        const s = socketRef.current;
+        const sid = sessionIdRef.current;
+        if (s) s.emit(dy > 0 ? 'undo' : 'redo', { sessionId: sid });
         if (navigator.vibrate) navigator.vibrate(40);
-        setInitialSwipeY(null);
+        initialSwipeYRef.current = null;
       }
       return;
     }
     if (e.touches.length > 1) return;
 
-    const { x, y } = norm(e);
+    const rect = padRectRef.current;
+    if (!rect) return;
+    const { x, y } = norm(e, rect);
 
-    if (tool === 'text') {
+    if (toolRef.current === 'text') {
       const g = textGestureRef.current;
       const dist = Math.hypot(x - g.x, y - g.y);
       if (!g.moveStarted && dist > 0.04) {
         g.moveStarted = true; g.moved = true;
-        if (socket) socket.emit('text-move-start', { sessionId, x: g.x, y: g.y });
+        const s = socketRef.current;
+        if (s) s.emit('text-move-start', { sessionId: sessionIdRef.current, x: g.x, y: g.y });
       }
-      if (g.moveStarted && socket) socket.emit('text-move', { sessionId, x, y });
+      if (g.moveStarted) {
+        const s = socketRef.current;
+        if (s) s.emit('text-move', { sessionId: sessionIdRef.current, x, y });
+      }
       return;
     }
 
-    if (!isDrawing || !socket) return;
+    if (!isDrawingRef.current) return;
 
-    if (tool === 'laser')       socket.emit('laser-move',     { sessionId, x, y });
-    else if (tool === 'shape')  socket.emit('shape-preview',  { sessionId, x2: x, y2: y });
-    else socket.emit('draw', { sessionId, x, y, color: tool === 'eraser' ? bgColor : color, lineWidth });
+    // ── RAF throttle: only emit once per animation frame (~60fps) ──
+    if (rafPendingRef.current) return;
+    rafPendingRef.current = true;
+
+    // Capture values immediately (touch events are pooled and recycled)
+    const xSnap = x, ySnap = y;
+    const s = socketRef.current;
+    const sid = sessionIdRef.current;
+    const t = toolRef.current;
+    const c = colorRef.current;
+    const lw = lineWidthRef.current;
+    const bg = bgColorRef2.current;
+
+    requestAnimationFrame(() => {
+      rafPendingRef.current = false;
+      if (!s) return;
+      if (t === 'laser')       s.emit('laser-move',    { sessionId: sid, x: xSnap, y: ySnap });
+      else if (t === 'shape')  s.emit('shape-preview', { sessionId: sid, x2: xSnap, y2: ySnap });
+      else                     s.emit('draw',          { sessionId: sid, x: xSnap, y: ySnap, color: t === 'eraser' ? bg : c, lineWidth: lw });
+    });
   };
 
   const handleTouchEnd = e => {
-    if (e.touches.length === 0) setInitialSwipeY(null);
+    if (e.touches.length === 0) initialSwipeYRef.current = null;
 
-    if (tool === 'text') {
+    const t = toolRef.current;
+    if (t === 'text') {
       const g = textGestureRef.current;
+      const s = socketRef.current;
+      const sid = sessionIdRef.current;
       if (g.moved) {
-        if (socket) socket.emit('text-move-end', { sessionId });
+        if (s) s.emit('text-move-end', { sessionId: sid });
       } else {
         setTextPos({ x: g.x, y: g.y });
         setTextInput('');
@@ -155,22 +215,29 @@ export default function Pad() {
       return;
     }
 
-    setIsDrawing(false);
-    if (!socket) return;
-    if (tool === 'laser')      socket.emit('laser-end',  { sessionId });
-    else if (tool === 'shape') socket.emit('shape-end',  { sessionId });
-    else if (tool !== 'select') socket.emit('draw-end',  { sessionId });
+    isDrawingRef.current = false;
+    rafPendingRef.current = false;
+    padRectRef.current = null;
+    const s = socketRef.current;
+    const sid = sessionIdRef.current;
+    if (!s) return;
+    if (t === 'laser')       s.emit('laser-end',  { sessionId: sid });
+    else if (t === 'shape')  s.emit('shape-end',  { sessionId: sid });
+    else if (t !== 'select') s.emit('draw-end',   { sessionId: sid });
   };
 
   const handleClear = () => {
-    if (socket) socket.emit('clear-board', { sessionId });
+    const s = socketRef.current ?? socket;
+    if (s) s.emit('clear-board', { sessionId: sessionIdRef.current ?? sessionId });
     if (navigator.vibrate) navigator.vibrate(50);
   };
 
   // Switch tool on board remotely
   const handleSetTool = (t) => {
     setTool(t);
-    if (socket) socket.emit('set-tool', { sessionId, tool: t });
+    toolRef.current = t;
+    const s = socket;
+    if (s) s.emit('set-tool', { sessionId, tool: t });
   };
 
   const handleZoomIn    = () => socket && socket.emit('zoom-in',    { sessionId });
@@ -503,14 +570,6 @@ export default function Pad() {
 
           {/* Status indicator */}
           <div className="absolute bottom-4 right-4 flex gap-2 items-center pointer-events-none">
-            {isDrawing && tool !== 'laser' && (
-              <>
-                <div className={`w-2 h-2 rounded-full animate-ping ${tool === 'shape' ? 'bg-purple-400' : 'bg-blue-400'}`} />
-                <span className={`text-xs font-mono opacity-70 ${tool === 'shape' ? 'text-purple-400' : 'text-blue-400'}`}>
-                  {tool === 'shape' ? `${shapeType}…` : 'drawing…'}
-                </span>
-              </>
-            )}
             {tool === 'laser' && (
               <>
                 <Circle className="w-3 h-3 text-red-500 animate-pulse" />
@@ -519,6 +578,11 @@ export default function Pad() {
             )}
             {tool === 'text' && !textPos && (
               <span className="text-xs text-emerald-400 font-mono opacity-70">tap to add text · drag to move</span>
+            )}
+            {(tool === 'pen' || tool === 'shape' || tool === 'eraser') && (
+              <span className={`text-xs font-mono opacity-50 ${
+                tool === 'shape' ? 'text-purple-400' : 'text-blue-400'
+              }`}>{tool === 'shape' ? shapeType : tool}</span>
             )}
           </div>
 

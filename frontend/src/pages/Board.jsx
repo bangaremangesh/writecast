@@ -584,6 +584,8 @@ export default function Board() {
     const ay = ny => ny * (fc.height || window.innerHeight);
 
     let remotePathPoints = [];
+    let drawRafPending = false; // RAF throttle for incoming draw events
+
     socket.on('draw-start', ({ x, y, color: dc, lineWidth: dw }) => {
       remotePathPoints = [{ x: ax(x), y: ay(y) }];
       const polyline = new fabric.Polyline(remotePathPoints, {
@@ -594,13 +596,21 @@ export default function Board() {
       });
       fc.add(polyline);
       activeRemoteObj.current = polyline;
+      drawRafPending = false;
     });
 
     socket.on('draw', ({ x, y }) => {
       if (!activeRemoteObj.current) return;
       remotePathPoints.push({ x: ax(x), y: ay(y) });
       activeRemoteObj.current.set({ points: remotePathPoints });
-      fc.requestRenderAll();
+      // Throttle canvas repaints to ~60fps via RAF
+      if (!drawRafPending) {
+        drawRafPending = true;
+        requestAnimationFrame(() => {
+          drawRafPending = false;
+          fc.requestRenderAll();
+        });
+      }
     });
 
     socket.on('draw-end', () => {
@@ -609,6 +619,7 @@ export default function Board() {
         saveHistoryState(fc);
         activeRemoteObj.current = null;
       }
+      drawRafPending = false;
     });
 
     socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {

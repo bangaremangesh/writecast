@@ -11,7 +11,7 @@ import jsPDF from 'jspdf';
 const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.hostname}:3001`;
 
 // Custom SVG Cursors
-const PEN_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cg transform='rotate(-45 16 16)'%3E%3Crect x='13' y='4' width='6' height='16' rx='2' fill='%23334155' stroke='%23f8fafc' stroke-width='1'/%3E%3Cpolygon points='13,20 19,20 16,28' fill='%23334155' stroke='%23f8fafc' stroke-width='1'/%3E%3Ccircle cx='16' cy='29' r='1.5' fill='%231e40af'/%3E%3C/g%3E%3C/svg%3E") 2 30, crosshair`;
+const PEN_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cg transform='scale(-1,1) translate(-32,0)'%3E%3Cg transform='rotate(-45 16 16)'%3E%3Crect x='13' y='4' width='6' height='16' rx='2' fill='%23334155' stroke='%23f8fafc' stroke-width='1'/%3E%3Cpolygon points='13,20 19,20 16,28' fill='%23334155' stroke='%23f8fafc' stroke-width='1'/%3E%3Ccircle cx='16' cy='29' r='1.5' fill='%231e40af'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") 30 30, crosshair`;
 
 const ERASER_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='4' y='10' width='24' height='16' rx='3' fill='%23fca5a5' stroke='%23ef4444' stroke-width='2'/%3E%3Crect x='4' y='10' width='10' height='16' rx='3' fill='%23fecaca'/%3E%3Cline x1='4' y1='26' x2='28' y2='26' stroke='%23b91c1c' stroke-width='2'/%3E%3C/svg%3E") 16 16, cell`;
 

@@ -678,11 +678,34 @@ export default function Board() {
     socket.on('undo', handleUndo);
     socket.on('redo', handleRedo);
 
+    // Pad remote control events
+    socket.on('set-tool', ({ tool: t }) => setTool(t));
+    socket.on('zoom-in',    () => handleZoomIn());
+    socket.on('zoom-out',   () => handleZoomOut());
+    socket.on('zoom-reset', () => handleZoomReset());
+    socket.on('add-image', ({ dataUrl }) => {
+      fabric.Image.fromURL(dataUrl).then((img) => {
+        const maxWidth  = fc.width  * 0.8;
+        const maxHeight = fc.height * 0.8;
+        if (img.width > maxWidth || img.height > maxHeight) {
+          const scale = Math.min(maxWidth / img.width, maxHeight / img.height);
+          img.scale(scale);
+        }
+        fc.centerObject(img);
+        img.set({ selectable: true, evented: true });
+        fc.add(img);
+        fc.setActiveObject(img);
+        fc.requestRenderAll();
+        saveHistoryState(fc);
+      });
+    });
+
     return () => {
       socket.off('draw-start'); socket.off('draw'); socket.off('draw-end');
       socket.off('shape-start'); socket.off('shape-preview'); socket.off('shape-end');
       socket.off('laser-start'); socket.off('laser-move'); socket.off('laser-end');
       socket.off('clear-board'); socket.off('undo'); socket.off('redo'); socket.off('add-text');
+      socket.off('set-tool'); socket.off('zoom-in'); socket.off('zoom-out'); socket.off('zoom-reset'); socket.off('add-image');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, tool]);

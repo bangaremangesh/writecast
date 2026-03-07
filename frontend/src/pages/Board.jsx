@@ -679,20 +679,6 @@ export default function Board() {
         />
       )}
 
-      {showQR && !padConnected && (
-        <div className="absolute top-6 left-6 glass p-4 rounded-2xl flex items-center gap-4 z-10 transition-transform hover:scale-105">
-          <div className="bg-white p-2 rounded-xl">
-            {padUrl && <QRCode value={padUrl} size={80} level="H" />}
-          </div>
-          <div>
-            <h3 className="font-bold text-lg text-slate-800 dark:text-white">Join via Phone</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Scan to turn your phone<br/>into a drawing pad.</p>
-            <div className="mt-2 text-xs font-mono bg-slate-200 dark:bg-slate-700 p-1 rounded text-center">
-              ID: {sessionId}
-            </div>
-          </div>
-        </div>
-      )}
 
       {padConnected && (
         <div className="absolute top-4 left-4 glass px-2.5 py-1.5 rounded-full flex items-center gap-1.5 z-10 border border-green-400/30">

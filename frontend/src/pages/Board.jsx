@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut } from 'lucide-react';
+import * as fabric from 'fabric';
 
 // In production, the socket connects to the same host serving the frontend.
 // In development, it connects to the local dev server hostname.
@@ -11,511 +11,514 @@ const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.
 
 export default function Board() {
   const canvasRef = useRef(null);
-  const contextRef = useRef(null);
+  const fabricRef = useRef(null);
   const [searchParams] = useSearchParams();
   
   const [socket, setSocket] = useState(null);
   const [sessionId, setSessionId] = useState('');
   const [padConnected, setPadConnected] = useState(false);
   const [showQR, setShowQR] = useState(false);
-  const bgColorRef = useRef('#ffffff'); // Keep ref in sync for use in clearBoard
   
   // Drawing state
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [color, setColor] = useState('#000000'); // Default pen color: black
+  const [color, setColor] = useState('#000000'); 
   const [lineWidth, setLineWidth] = useState(5);
-  const [tool, setTool] = useState('pen'); // pen, eraser, text, shape
-  const [bgColor, setBgColor] = useState('#ffffff'); // default white background
+  const [tool, setTool] = useState('pen'); // pen, eraser, select, text, shape
+  const [bgColor, setBgColor] = useState('#ffffff'); 
+  const bgColorRef = useRef('#ffffff');
   
   // Board specific tool state
   const [shapeType, setShapeType] = useState('rect');
   const [shapeFill, setShapeFill] = useState(false);
-  const [textInput, setTextInput] = useState('');
-  const [textPos, setTextPos] = useState(null);
-  const textInputRef = useRef(null);
-
-  // Keep ref in sync with state so clearBoard always has latest value
-  function applyBgColor(newColor) {
-    bgColorRef.current = newColor;
-    setBgColor(newColor);
-  }
   const [padUrl, setPadUrl] = useState('');
   const [laserPos, setLaserPos] = useState(null);
 
-  // History for Undo/Redo
+  // History state for simpler fabric canvas manipulation
   const [history, setHistory] = useState([]);
   const [redoList, setRedoList] = useState([]);
-  const historyRef = useRef([]);
 
-  // Text labels
-  const [texts, setTexts] = useState([]);
-  const selectedTextRef = useRef(null); // { id, offsetX, offsetY }
+  // Zoom state
+  const [zoom, setZoom] = useState(1);
 
-  // Shape preview
-  const previewCanvasRef = useRef(null);
-  const shapePreviewRef  = useRef(null);
+  const handleZoomIn = () => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    let newZoom = fc.getZoom() * 1.2;
+    if (newZoom > 5) newZoom = 5;
+    fc.zoomToPoint({ x: fc.width / 2, y: fc.height / 2 }, newZoom);
+    setZoom(newZoom);
+  };
 
-  useEffect(() => {
-    // Use pre-established session from ?session= param, or generate a new one
-    const preSession = searchParams.get('session');
-    const newSessionId = preSession || Math.random().toString(36).substring(2, 8);
-    setSessionId(newSessionId);
-    
-    // If arriving via Connect Device flow, pad is already connected
-    if (preSession) setPadConnected(true);
+  const handleZoomOut = () => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    let newZoom = fc.getZoom() / 1.2;
+    if (newZoom < 0.1) newZoom = 0.1;
+    fc.zoomToPoint({ x: fc.width / 2, y: fc.height / 2 }, newZoom);
+    setZoom(newZoom);
+  };
 
-    // Construct the URL for the pad
-    const url = `${window.location.origin}/pad/${newSessionId}`;
-    setPadUrl(url);
+  const handleZoomReset = () => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+    fc.setViewportTransform([1, 0, 0, 1, 0, 0]);
+    setZoom(1);
+    fc.requestRenderAll();
+  };
 
-    // Initialize Socket
-    const newSocket = io(SOCKET_URL);
-    setSocket(newSocket);
-
-    newSocket.on('connect', () => {
-      newSocket.emit('join-session', { sessionId: newSessionId, role: 'board' });
-    });
-
-    newSocket.on('participant-joined', ({ role }) => {
-      if (role === 'pad') setPadConnected(true);
-    });
-
-    return () => newSocket.close();
-  }, []);
-
-  // Repaint canvas background whenever bgColor changes
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = contextRef.current;
-    if (!canvas || !ctx) return;
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
-  }, [bgColor]);
-
-  // Initialize Canvas + Preview Canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const parent = canvas.parentElement;
-    const w = parent.clientWidth;
-    const h = parent.clientHeight;
-    const dpr = window.devicePixelRatio;
-
-    canvas.width  = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width  = `${w}px`;
-    canvas.style.height = `${h}px`;
-
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.lineCap  = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = color;
-    ctx.lineWidth   = lineWidth;
-    ctx.fillStyle   = bgColor;
-    ctx.fillRect(0, 0, w, h);
-    contextRef.current = ctx;
-
-    // Preview canvas (no DPR scaling — CSS-pixel drawing for shapes)
-    const pc = previewCanvasRef.current;
-    if (pc) {
-      pc.width  = w; pc.height = h;
-      pc.style.width  = `${w}px`;
-      pc.style.height = `${h}px`;
-    }
-
-    saveHistoryState(canvas);
-  }, []);
-
-  function saveHistoryState(canvas) {
-    const url = canvas.toDataURL();
-    historyRef.current = [...historyRef.current, url];
-    setHistory(historyRef.current);
+  // --- Helper Functions ---
+  function saveHistoryState(fc) {
+    if (!fc) return;
+    const json = fc.toJSON();
+    // avoid pushing duplicates rapidly
+    setHistory(prev => [...prev, json]);
     setRedoList([]);
   }
 
-  // Shape drawing helper (used for preview and commit)
-  function drawShapeOnCtx(ctx, { shape, x1, y1, x2, y2, color: c, lineWidth: lw, fill }) {
-    ctx.beginPath();
-    ctx.strokeStyle = c;
-    ctx.lineWidth   = lw;
-    if (fill) ctx.fillStyle = c;
-    if (shape === 'rect') {
-      ctx.rect(x1, y1, x2 - x1, y2 - y1);
-    } else if (shape === 'circle') {
-      const rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2;
-      ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, rx, ry, 0, 0, Math.PI * 2);
-    } else if (shape === 'triangle') {
-      ctx.moveTo((x1 + x2) / 2, y1);
-      ctx.lineTo(x1, y2);
-      ctx.lineTo(x2, y2);
-      ctx.closePath();
-    } else if (shape === 'line') {
-      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+  function handleUndo() {
+    if (history.length > 1) {
+      const fc = fabricRef.current;
+      const nextH = [...history];
+      const cur = nextH.pop(); // pop current
+      setRedoList(prev => [...prev, cur]);
+      setHistory(nextH);
+      const prevState = nextH[nextH.length - 1]; // state right before
+      
+      fc.loadFromJSON(prevState, () => {
+        fc.requestRenderAll();
+      });
     }
-    ctx.stroke();
-    if (fill && shape !== 'line') ctx.fill();
-    if (shape !== 'triangle') ctx.closePath();
   }
 
-  function getCoordinates(e) {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
+  function handleRedo() {
+    if (redoList.length > 0) {
+      const fc = fabricRef.current;
+      const newR = [...redoList];
+      const nextState = newR.pop();
+      setHistory(prev => [...prev, nextState]);
+      setRedoList(newR);
+      
+      fc.loadFromJSON(nextState, () => {
+        fc.requestRenderAll();
+      });
+    }
+  }
+
+  function handleClear(emit = true) {
+    const fc = fabricRef.current;
+    if (fc) {
+      fc.clear();
+      fc.backgroundColor = bgColorRef.current;
+      saveHistoryState(fc);
+      if (emit && socket) socket.emit('clear-board', { sessionId });
+    }
+  }
+
+  function handleExport() {
+    const fc = fabricRef.current;
+    if (fc) {
+      const dataUrl = fc.toDataURL({ format: 'png', multiplier: 2 });
+      const link = document.createElement('a');
+      link.download = `WriteCast-${sessionId}.png`;
+      link.href = dataUrl;
+      link.click();
+    }
+  }
+
+  // Setup Fabric Canvas
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const parent = canvasRef.current.parentElement;
     
-    // Support both mouse and touch
-    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+    const fc = new fabric.Canvas(canvasRef.current, {
+      width: parent.clientWidth,
+      height: parent.clientHeight,
+      backgroundColor: bgColor,
+      isDrawingMode: true,
+      selection: false,
+    });
     
-    return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-      normalizedX: (clientX - rect.left) / rect.width,
-      normalizedY: (clientY - rect.top) / rect.height
+    fabricRef.current = fc;
+
+    const handleResize = () => {
+      fc.setDimensions({ width: parent.clientWidth, height: parent.clientHeight });
     };
-  }
+    window.addEventListener('resize', handleResize);
 
-  function startDrawing(e) {
-    const { x, y, normalizedX, normalizedY } = getCoordinates(e);
+    // Initial history save
+    saveHistoryState(fc);
 
-    if (tool === 'text') {
-      setTextPos({ x: normalizedX, y: normalizedY });
-      setTextInput('');
-      setTimeout(() => textInputRef.current?.focus(), 60);
-      return;
-    }
-
-    setIsDrawing(true);
-    
-    if (tool === 'shape') {
-      shapePreviewRef.current = { shape: shapeType, x1: x, y1: y, x2: x, y2: y, color, lineWidth, fill: shapeFill };
-      if (socket) socket.emit('shape-start', { sessionId, shape: shapeType, x: normalizedX, y: normalizedY, color, lineWidth, fill: shapeFill });
-      return;
-    }
-
-    // Default pen/eraser
-    contextRef.current.beginPath();
-    contextRef.current.moveTo(x, y);
-    if (socket) {
-      socket.emit('draw-start', { sessionId, x: normalizedX, y: normalizedY, color: tool === 'eraser' ? bgColor : color, lineWidth });
-    }
-  };
-
-  function draw(e) {
-    if (!isDrawing) return;
-    const { x, y, normalizedX, normalizedY } = getCoordinates(e);
-    
-    if (tool === 'shape') {
-      const s = shapePreviewRef.current;
-      if (!s) return;
-      s.x2 = x; s.y2 = y;
-      const pc = previewCanvasRef.current;
-      if (!pc) return;
-      const pctx = pc.getContext('2d');
-      pctx.clearRect(0, 0, pc.width, pc.height);
-      drawShapeOnCtx(pctx, s);
-      if (socket) socket.emit('shape-preview', { sessionId, x2: normalizedX, y2: normalizedY });
-      return;
-    }
-
-    // Default pen/eraser
-    contextRef.current.strokeStyle = tool === 'eraser' ? bgColor : color;
-    contextRef.current.lineWidth = lineWidth;
-    contextRef.current.lineTo(x, y);
-    contextRef.current.stroke();
-
-    if (socket) {
-      socket.emit('draw', { sessionId, x: normalizedX, y: normalizedY, color: tool === 'eraser' ? bgColor : color, lineWidth });
-    }
-  };
-
-  function stopDrawing() {
-    if (!isDrawing) return;
-    setIsDrawing(false);
-
-    if (tool === 'shape') {
-      const s = shapePreviewRef.current;
-      if (s) {
-        drawShapeOnCtx(contextRef.current, s);
-        const pc = previewCanvasRef.current;
-        if (pc) pc.getContext('2d').clearRect(0, 0, pc.width, pc.height);
-        saveHistoryState(canvasRef.current);
-        shapePreviewRef.current = null;
-        if (socket) socket.emit('shape-end', { sessionId });
+    // Wheel zoom & pan support
+    fc.on('mouse:wheel', function(opt) {
+      if (opt.e.ctrlKey || opt.e.metaKey) {
+        let delta = opt.e.deltaY;
+        let newZoom = fc.getZoom() * (0.999 ** delta);
+        if (newZoom > 5) newZoom = 5;
+        if (newZoom < 0.1) newZoom = 0.1;
+        fc.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, newZoom);
+        setZoom(newZoom);
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
+      } else {
+        // Two-finger pan
+        let vpt = this.viewportTransform;
+        vpt[4] -= opt.e.deltaX;
+        vpt[5] -= opt.e.deltaY;
+        this.requestRenderAll();
       }
-      return;
-    }
+    });
 
-    // Default pen/eraser
-    contextRef.current.closePath();
-    saveHistoryState(canvasRef.current);
-    if (socket) {
-      socket.emit('draw-end', { sessionId });
-    }
-  };
+    // Track path creation from free drawing so we can make it selectable and socket sync
+    fc.on('path:created', (opt) => {
+      const path = opt.path;
+      path.set({ selectable: tool === 'select', evented: tool === 'select' });
+      saveHistoryState(fc);
+      if (socket) {
+        socket.emit('object:added', { sessionId, obj: path.toJSON() });
+      }
+    });
 
-  function submitText() {
-    if (textInput.trim() && textPos) {
-      const newLabel = {
-        id: Math.random().toString(36).substr(2, 9),
-        text: textInput.trim(),
-        x: textPos.x,
-        y: textPos.y,
-        color,
-        fontSize: 20,
-      };
-      setTexts(prev => [...prev, newLabel]);
-      if (socket) socket.emit('add-text', { sessionId, ...newLabel });
+    fc.on('object:modified', (opt) => {
+      saveHistoryState(fc);
+      if (socket) socket.emit('object:modified', { sessionId, obj: opt.target.toJSON() });
+    });
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      fc.dispose();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update canvas background
+  function applyBgColor(newColor) {
+    bgColorRef.current = newColor;
+    setBgColor(newColor);
+    const fc = fabricRef.current;
+    if (fc) {
+      fc.backgroundColor = newColor;
+      fc.requestRenderAll();
+      if (socket) socket.emit('change-bg', { sessionId, color: newColor });
     }
-    setTextPos(null);
-    setTextInput('');
   }
+
+  // Update tool setting logic
+  useEffect(() => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+
+    // Apply properties based on tool
+    if (tool === 'pen' || tool === 'eraser') {
+      fc.isDrawingMode = true;
+      fc.selection = false;
+      
+      const brush = new fabric.PencilBrush(fc);
+      brush.color = tool === 'eraser' ? bgColorRef.current : color;
+      brush.width = parseInt(lineWidth, 10) || 5;
+      fc.freeDrawingBrush = brush;
+      
+      fc.getObjects().forEach(o => o.set({ selectable: false, evented: false }));
+    } else if (tool === 'select') {
+      fc.isDrawingMode = false;
+      fc.selection = true;
+      fc.getObjects().forEach(o => o.set({ selectable: true, evented: true }));
+      fc.requestRenderAll();
+    } else {
+      // shape or text tools
+      fc.isDrawingMode = false;
+      fc.selection = false;
+      fc.getObjects().forEach(o => o.set({ selectable: false, evented: false }));
+    }
+    
+    // Change active object color if changing color in select mode
+    if (tool === 'select') {
+      const activeObj = fc.getActiveObject();
+      if (activeObj && activeObj.type !== 'image') {
+        if (activeObj.type === 'path') {
+          activeObj.set('stroke', color);
+        } else if (activeObj.type === 'i-text' || activeObj.type === 'text') {
+          activeObj.set('fill', color);
+        } else {
+          activeObj.set('stroke', color);
+          if (activeObj.fill && activeObj.fill !== 'transparent') {
+             activeObj.set('fill', color);
+          }
+        }
+        fc.requestRenderAll();
+        saveHistoryState(fc);
+      }
+    }
+  }, [tool, color, lineWidth, bgColor]);
+
+  // Shape drawing interactions
+  useEffect(() => {
+    const fc = fabricRef.current;
+    if (!fc) return;
+
+    let isDrawingShape = false;
+    let startPoint = null;
+    let currentShape = null;
+
+    const onMouseDown = (o) => {
+      if (tool === 'shape') {
+        isDrawingShape = true;
+        const pointer = fc.getScenePoint(o.e);
+        startPoint = pointer;
+
+        const commonProps = {
+          left: pointer.x,
+          top: pointer.y,
+          fill: shapeFill ? color : 'transparent',
+          stroke: color,
+          strokeWidth: parseInt(lineWidth, 10) || 5,
+          selectable: false,
+          evented: false,
+        };
+
+        if (shapeType === 'rect') {
+          currentShape = new fabric.Rect({ ...commonProps, width: 0, height: 0 });
+        } else if (shapeType === 'circle') {
+          currentShape = new fabric.Circle({ ...commonProps, radius: 0, originX: 'center', originY: 'center' });
+        } else if (shapeType === 'triangle') {
+          currentShape = new fabric.Triangle({ ...commonProps, width: 0, height: 0 });
+        } else if (shapeType === 'line') {
+          currentShape = new fabric.Line([pointer.x, pointer.y, pointer.x, pointer.y], commonProps);
+        }
+
+        if (currentShape) {
+          fc.add(currentShape);
+        }
+      } else if (tool === 'text') {
+        const pointer = fc.getScenePoint(o.e);
+        const textObj = new fabric.IText('Text', {
+          left: pointer.x,
+          top: pointer.y,
+          fill: color,
+          fontSize: 24,
+          fontFamily: 'system-ui, sans-serif',
+          selectable: true,
+          evented: true
+        });
+        fc.add(textObj);
+        fc.setActiveObject(textObj);
+        textObj.enterEditing();
+        textObj.selectAll();
+        fc.requestRenderAll();
+        setTool('select');
+        saveHistoryState(fc);
+      }
+    };
+
+    const onMouseMove = (o) => {
+      if (!isDrawingShape || !currentShape) return;
+      const pointer = fc.getScenePoint(o.e);
+      
+      if (shapeType === 'rect') {
+        currentShape.set({
+          width: Math.abs(pointer.x - startPoint.x),
+          height: Math.abs(pointer.y - startPoint.y),
+        });
+        if (startPoint.x > pointer.x) currentShape.set({ left: pointer.x });
+        if (startPoint.y > pointer.y) currentShape.set({ top: pointer.y });
+      } else if (shapeType === 'circle') {
+        const radius = Math.max(Math.abs(pointer.x - startPoint.x), Math.abs(pointer.y - startPoint.y)) / 2;
+        currentShape.set({ radius });
+        currentShape.set({ left: (startPoint.x + pointer.x) / 2, top: (startPoint.y + pointer.y) / 2 });
+      } else if (shapeType === 'triangle') {
+        currentShape.set({
+          width: Math.abs(pointer.x - startPoint.x),
+          height: Math.abs(pointer.y - startPoint.y)
+        });
+        if (startPoint.x > pointer.x) currentShape.set({ left: pointer.x });
+        if (startPoint.y > pointer.y) currentShape.set({ top: pointer.y });
+      } else if (shapeType === 'line') {
+        currentShape.set({ x2: pointer.x, y2: pointer.y });
+      }
+      fc.requestRenderAll();
+    };
+
+    const onMouseUp = () => {
+      if (!isDrawingShape) return;
+      isDrawingShape = false;
+      if (currentShape) {
+        currentShape.setCoords();
+        saveHistoryState(fc);
+        if (socket) socket.emit('object:added', { sessionId, obj: currentShape.toJSON() });
+      }
+      currentShape = null;
+      setTool('select');
+    };
+
+    // Keyboard support for selecting & deleting
+    const onKeyDown = (e) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (tool === 'select' && document.activeElement.tagName !== 'INPUT') {
+          const actives = fc.getActiveObjects();
+          if (actives.length) {
+            actives.forEach(a => {
+              if (a.isEditing) return; // don't delete if we are inside text
+              fc.remove(a);
+            });
+            fc.discardActiveObject();
+            saveHistoryState(fc);
+          }
+        }
+      }
+    };
+
+    fc.on('mouse:down', onMouseDown);
+    fc.on('mouse:move', onMouseMove);
+    fc.on('mouse:up', onMouseUp);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      fc.off('mouse:down', onMouseDown);
+      fc.off('mouse:move', onMouseMove);
+      fc.off('mouse:up', onMouseUp);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, shapeType, shapeFill, color, lineWidth, socket, sessionId]);
+
+  // Socket Initializer & Event Listeners
+  useEffect(() => {
+    const preSession = searchParams.get('session');
+    const newSessionId = preSession || Math.random().toString(36).substring(2, 8);
+    setSessionId(newSessionId);
+    if (preSession) setPadConnected(true);
+    setPadUrl(`${window.location.origin}/pad/${newSessionId}`);
+
+    const newSocket = io(SOCKET_URL);
+    setSocket(newSocket);
+    newSocket.on('connect', () => newSocket.emit('join-session', { sessionId: newSessionId, role: 'board' }));
+    newSocket.on('participant-joined', ({ role }) => { if (role === 'pad') setPadConnected(true); });
+    
+    return () => newSocket.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Listen for socket events from Pad
+  const activeRemoteObj = useRef(null);
+
   useEffect(() => {
-    if (!socket || !contextRef.current || !canvasRef.current) return;
+    if (!socket || !fabricRef.current) return;
+    const fc = fabricRef.current;
 
-    const c  = canvasRef.current;
-    const ctx = contextRef.current;
+    const ax = nx => nx * (fc.width || window.innerWidth);
+    const ay = ny => ny * (fc.height || window.innerHeight);
 
-    const ax = nx => nx * c.clientWidth;
-    const ay = ny => ny * c.clientHeight;
-
+    let remotePathPoints = [];
     socket.on('draw-start', ({ x, y, color: dc, lineWidth: dw }) => {
-      ctx.beginPath(); ctx.moveTo(ax(x), ay(y));
-      ctx.strokeStyle = dc; ctx.lineWidth = dw;
+      remotePathPoints = [{ x: ax(x), y: ay(y) }];
+      const polyline = new fabric.Polyline(remotePathPoints, {
+        stroke: dc, strokeWidth: dw, fill: 'transparent',
+        strokeLineCap: 'round', strokeLineJoin: 'round',
+        selectable: tool === 'select', evented: tool === 'select',
+        originX: 'center', originY: 'center'
+      });
+      fc.add(polyline);
+      activeRemoteObj.current = polyline;
     });
-    socket.on('draw', ({ x, y, color: dc, lineWidth: dw }) => {
-      ctx.strokeStyle = dc; ctx.lineWidth = dw;
-      ctx.lineTo(ax(x), ay(y)); ctx.stroke();
-    });
-    socket.on('draw-end', () => { ctx.closePath(); saveHistoryState(c); });
 
-    socket.on('clear-board', () => { clearBoard(false); setTexts([]); });
+    socket.on('draw', ({ x, y }) => {
+      if (!activeRemoteObj.current) return;
+      remotePathPoints.push({ x: ax(x), y: ay(y) });
+      activeRemoteObj.current.set({ points: remotePathPoints });
+      fc.requestRenderAll();
+    });
+
+    socket.on('draw-end', () => {
+      if (activeRemoteObj.current) {
+        activeRemoteObj.current.setCoords();
+        saveHistoryState(fc);
+        activeRemoteObj.current = null;
+      }
+    });
+
+    socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {
+      const common = {
+        left: ax(x), top: ay(y), fill: fill ? sc : 'transparent',
+        stroke: sc, strokeWidth: sw, selectable: tool === 'select', evented: tool === 'select',
+      };
+      let s;
+      if (shape === 'rect') s = new fabric.Rect({ ...common, width: 0, height: 0 });
+      else if (shape === 'circle') s = new fabric.Circle({ ...common, radius: 0, originX: 'center', originY: 'center' });
+      else if (shape === 'triangle') s = new fabric.Triangle({ ...common, width: 0, height: 0 });
+      else if (shape === 'line') s = new fabric.Line([ax(x), ay(y), ax(x), ay(y)], common);
+      
+      fc.add(s);
+      activeRemoteObj.current = { shapeObj: s, startX: ax(x), startY: ay(y), shape };
+    });
+
+    socket.on('shape-preview', ({ x2, y2 }) => {
+      if (!activeRemoteObj.current) return;
+      const { shapeObj, startX, startY, shape } = activeRemoteObj.current;
+      const curX = ax(x2), curY = ay(y2);
+
+      if (shape === 'rect') {
+        shapeObj.set({ width: Math.abs(curX - startX), height: Math.abs(curY - startY) });
+        if (startX > curX) shapeObj.set({ left: curX });
+        if (startY > curY) shapeObj.set({ top: curY });
+      } else if (shape === 'circle') {
+        const radius = Math.max(Math.abs(curX - startX), Math.abs(curY - startY)) / 2;
+        shapeObj.set({ radius, left: (startX + curX)/2, top: (startY + curY)/2 });
+      } else if (shape === 'triangle') {
+        shapeObj.set({ width: Math.abs(curX - startX), height: Math.abs(curY - startY) });
+        if (startX > curX) shapeObj.set({ left: curX });
+        if (startY > curY) shapeObj.set({ top: curY });
+      } else if (shape === 'line') {
+        shapeObj.set({ x2: curX, y2: curY });
+      }
+      fc.requestRenderAll();
+    });
+
+    socket.on('shape-end', () => {
+      if (activeRemoteObj.current?.shapeObj) {
+        activeRemoteObj.current.shapeObj.setCoords();
+        saveHistoryState(fc);
+        activeRemoteObj.current = null;
+      }
+    });
+
+    socket.on('add-text', ({ text, x, y, color: tc, fontSize }) => {
+      const textObj = new fabric.IText(text, {
+        left: ax(x), top: ay(y), fill: tc, fontSize, fontFamily: 'system-ui, sans-serif',
+        selectable: tool === 'select', evented: tool === 'select',
+      });
+      fc.add(textObj);
+      saveHistoryState(fc);
+    });
 
     socket.on('laser-start', d => setLaserPos({ x: d.x, y: d.y }));
     socket.on('laser-move',  d => setLaserPos({ x: d.x, y: d.y }));
     socket.on('laser-end',    () => setLaserPos(null));
 
+    socket.on('clear-board', () => {
+      fc.clear();
+      fc.backgroundColor = bgColorRef.current;
+      saveHistoryState(fc);
+    });
+
     socket.on('undo', handleUndo);
     socket.on('redo', handleRedo);
 
-    // ── Text events ──
-    socket.on('add-text', data => setTexts(prev => [...prev, data]));
-    socket.on('text-move-start', ({ x, y }) => {
-      setTexts(prev => {
-        if (!prev.length) return prev;
-        // Find closest text
-        let best = prev[0], bestDist = Infinity;
-        prev.forEach(t => {
-          const d = Math.hypot(t.x - x, t.y - y);
-          if (d < bestDist) { bestDist = d; best = t; }
-        });
-        selectedTextRef.current = { id: best.id, offsetX: x - best.x, offsetY: y - best.y };
-        return prev;
-      });
-    });
-    socket.on('text-move', ({ x, y }) => {
-      const sel = selectedTextRef.current;
-      if (!sel) return;
-      setTexts(prev => prev.map(t =>
-        t.id === sel.id ? { ...t, x: x - sel.offsetX, y: y - sel.offsetY } : t
-      ));
-    });
-    socket.on('text-move-end', () => { selectedTextRef.current = null; });
-
-    // ── Shape events ──
-    socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {
-      shapePreviewRef.current = { shape, x1: ax(x), y1: ay(y), x2: ax(x), y2: ay(y), color: sc, lineWidth: sw, fill };
-    });
-    socket.on('shape-preview', ({ x2, y2 }) => {
-      const s = shapePreviewRef.current;
-      if (!s) return;
-      s.x2 = ax(x2); s.y2 = ay(y2);
-      const pc = previewCanvasRef.current;
-      if (!pc) return;
-      const pctx = pc.getContext('2d');
-      pctx.clearRect(0, 0, pc.width, pc.height);
-      drawShapeOnCtx(pctx, s);
-    });
-    socket.on('shape-end', () => {
-      const s = shapePreviewRef.current;
-      if (!s) return;
-      drawShapeOnCtx(ctx, s);
-      const pc = previewCanvasRef.current;
-      if (pc) pc.getContext('2d').clearRect(0, 0, pc.width, pc.height);
-      saveHistoryState(c);
-      shapePreviewRef.current = null;
-    });
-
     return () => {
-      ['draw-start','draw','draw-end','clear-board','laser-start','laser-move',
-       'laser-end','undo','redo','add-text','text-move-start','text-move',
-       'text-move-end','shape-start','shape-preview','shape-end'
-      ].forEach(ev => socket.off(ev));
+      socket.off('draw-start'); socket.off('draw'); socket.off('draw-end');
+      socket.off('shape-start'); socket.off('shape-preview'); socket.off('shape-end');
+      socket.off('laser-start'); socket.off('laser-move'); socket.off('laser-end');
+      socket.off('clear-board'); socket.off('undo'); socket.off('redo'); socket.off('add-text');
     };
-  }, [socket, history, redoList]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, tool]);
 
-  function clearBoard(emit = true) {
-    const canvas = canvasRef.current;
-    const ctx = contextRef.current;
-    // Use ref to always get the latest bgColor (avoids stale closure)
-    ctx.fillStyle = bgColorRef.current;
-    ctx.fillRect(0, 0, canvas.width / window.devicePixelRatio, canvas.height / window.devicePixelRatio);
-    saveHistoryState(canvas);
-    
-    if (emit && socket) {
-      socket.emit('clear-board', { sessionId });
-    }
-  };
-
-  async function handleExport() {
-    if (!canvasRef.current) return;
-    const canvas = await html2canvas(canvasRef.current);
-    const link = document.createElement('a');
-    link.download = `WriteCast-${sessionId}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
-  };
-
-  // Undo/Redo logic (simplified)
-  function handleUndo() {
-    const h = historyRef.current;
-    if (h.length > 1) {
-      const next = [...h];
-      const cur = next.pop();
-      setRedoList(prev => [...prev, cur]);
-      historyRef.current = next;
-      setHistory(next);
-      restoreCanvas(next[next.length - 1]);
-    }
-  };
-
-  function handleRedo() {
-    if (redoList.length > 0) {
-      const newRedo = [...redoList];
-      const nextState = newRedo.pop();
-      setHistory(prev => [...prev, nextState]);
-      setRedoList(newRedo);
-      
-      restoreCanvas(nextState);
-    }
-  };
-
-  function restoreCanvas(dataUrl) {
-    const img = new Image();
-    img.src = dataUrl;
-    img.onload = () => {
-      const canvas = canvasRef.current;
-      const ctx = contextRef.current;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
-    };
-  };
-
-  // Toolbar icon/text color should contrast with the board background
   const isDark = bgColor === '#000000';
-
-  // Custom cursor
-  const [cursorPos, setCursorPos] = useState(null);
-  const cursorSize = Math.max(8, lineWidth);
-  const cursorColor = tool === 'eraser' ? bgColor : tool === 'pen' ? color : '#ef4444';
 
   return (
     <div className="relative w-screen h-screen overflow-hidden" style={{ backgroundColor: bgColor }}>
       
-      {/* Canvas */}
-      <div
-        className="absolute inset-0"
-        style={{ cursor: 'none' }}
-        onMouseMove={e => setCursorPos({ x: e.clientX, y: e.clientY })}
-        onMouseLeave={() => setCursorPos(null)}
-      >
-        <canvas ref={canvasRef} onMouseDown={startDrawing} onMouseMove={draw}
-          onMouseUp={stopDrawing} onMouseOut={stopDrawing}
-          onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
-          className="w-full h-full touch-none"
-        />
-        {/* Shape preview layer */}
-        <canvas ref={previewCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+      <div className="absolute inset-0">
+        <canvas ref={canvasRef} className="w-full h-full touch-none" />
       </div>
 
-      {/* Text input overlay for Board */}
-      {textPos && (
-        <div className="absolute z-50" style={{ left: `${textPos.x * 100}%`, top: `${textPos.y * 100}%`, transform: 'translate(-50%,-50%)' }}>
-          <input
-            ref={textInputRef}
-            type="text"
-            value={textInput}
-            onChange={e => setTextInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') submitText();
-              if (e.key === 'Escape') { setTextPos(null); setTextInput(''); }
-            }}
-            onBlur={submitText}
-            style={{ touchAction: 'auto', pointerEvents: 'auto' }}
-            className="bg-white/90 dark:bg-slate-900/90 border border-blue-500/60 text-slate-900 dark:text-white text-base px-3 py-2 rounded-xl outline-none w-52 shadow-2xl"
-            placeholder="Type & press Enter…"
-          />
-        </div>
-      )}
-
-      {/* Custom Cursor */}
-      {cursorPos && (
-        <div
-          className="pointer-events-none fixed z-[200]"
-          style={{
-            left: cursorPos.x,
-            top: cursorPos.y,
-            transform: 'translate(-50%, -50%)',
-            width: cursorSize,
-            height: cursorSize,
-            borderRadius: '50%',
-            backgroundColor: tool === 'eraser' ? 'transparent' : cursorColor,
-            border: `2px solid ${isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)'}`,
-            boxShadow: isDark
-              ? '0 0 0 1px rgba(0,0,0,0.5)'
-              : '0 0 0 1px rgba(255,255,255,0.5)',
-            transition: 'width 0.1s, height 0.1s',
-          }}
-        />
-      )}
-
-      {/* Text Labels */}
-      {texts.map(tl => (
-        <div
-          key={tl.id}
-          className="absolute z-[80] select-none cursor-move font-semibold drop-shadow-md"
-          style={{
-            left: `${tl.x * 100}%`,
-            top:  `${tl.y * 100}%`,
-            color: tl.color || '#000000',
-            fontSize: `${tl.fontSize || 20}px`,
-            transform: 'translate(-50%, -50%)',
-            whiteSpace: 'nowrap',
-          }}
-          onMouseDown={e => {
-            const startX = e.clientX, startY = e.clientY;
-            const startTX = tl.x, startTY = tl.y;
-            const cw = canvasRef.current?.clientWidth  || window.innerWidth;
-            const ch = canvasRef.current?.clientHeight || window.innerHeight;
-            const onMove = mv => setTexts(prev => prev.map(t =>
-              t.id === tl.id
-                ? { ...t, x: startTX + (mv.clientX - startX) / cw, y: startTY + (mv.clientY - startY) / ch }
-                : t
-            ));
-            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-            window.addEventListener('mousemove', onMove);
-            window.addEventListener('mouseup', onUp);
-          }}
-          onDoubleClick={() => setTexts(prev => prev.filter(t => t.id !== tl.id))}
-          title="Drag to move · double-click to delete"
-        >
-          {tl.text}
-        </div>
-      ))}
-
-      {/* Laser Pointer */}
       {laserPos && (
         <div 
           className="absolute w-6 h-6 bg-red-500 rounded-full blur-[2px] pointer-events-none z-[100] transform -translate-x-1/2 -translate-y-1/2"
@@ -527,7 +530,6 @@ export default function Board() {
         />
       )}
 
-      {/* QR Code Overlay — only shown when user opens it and pad not yet connected */}
       {showQR && !padConnected && (
         <div className="absolute top-6 left-6 glass p-4 rounded-2xl flex items-center gap-4 z-10 transition-transform hover:scale-105">
           <div className="bg-white p-2 rounded-xl">
@@ -543,7 +545,6 @@ export default function Board() {
         </div>
       )}
 
-      {/* Connected Badge — shown when pad joins */}
       {padConnected && (
         <div className="absolute top-4 left-4 glass px-2.5 py-1.5 rounded-full flex items-center gap-1.5 z-10 border border-green-400/30">
           <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
@@ -551,7 +552,6 @@ export default function Board() {
         </div>
       )}
 
-      {/* Shape Sub-menu (rendered outside toolbar to prevent clipping) */}
       {tool === 'shape' && (
         <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-50 p-2 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl flex items-center gap-2 border border-slate-200 dark:border-slate-700 animate-in fade-in slide-in-from-bottom-2">
           <button title="Rectangle" onClick={() => setShapeType('rect')} className={`p-2.5 rounded-xl transition-colors ${shapeType === 'rect' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/50 dark:text-purple-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700'}`}><Square className="w-5 h-5" /></button>
@@ -570,6 +570,14 @@ export default function Board() {
           : 'bg-white/90 border-slate-200 text-slate-800'
       } backdrop-blur-md`}>
         
+        <button 
+          onClick={() => setTool('select')} 
+          className={`p-3 rounded-full flex gap-1 items-center transition-colors ${tool === 'select' ? 'bg-amber-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700 text-amber-600 dark:text-amber-400'}`}
+          title="Select/Move"
+        >
+          <MousePointer2 className="w-5 h-5" />
+        </button>
+
         <button 
           onClick={() => setTool('pen')} 
           className={`p-3 rounded-full transition-colors ${tool === 'pen' ? 'bg-blue-500 text-white shadow-md' : 'hover:bg-slate-200 dark:hover:bg-slate-700'}`}
@@ -604,23 +612,16 @@ export default function Board() {
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
 
-        {/* Background Color Toggle: White / Black */}
         <div className="flex items-center gap-1 p-1 bg-slate-200/60 dark:bg-slate-700/60 rounded-full" title="Board Background">
           <button
-            onClick={() => {
-              applyBgColor('#ffffff');
-              if (socket) socket.emit('change-bg', { sessionId, color: '#ffffff' });
-            }}
+            onClick={() => applyBgColor('#ffffff')}
             className={`w-7 h-7 rounded-full border-2 transition-all ${
               bgColor === '#ffffff' ? 'border-blue-500 scale-110' : 'border-slate-300 dark:border-slate-600'
             } bg-white`}
             title="White Board"
           />
           <button
-            onClick={() => {
-              applyBgColor('#000000');
-              if (socket) socket.emit('change-bg', { sessionId, color: '#000000' });
-            }}
+            onClick={() => applyBgColor('#000000')}
             className={`w-7 h-7 rounded-full border-2 transition-all ${
               bgColor === '#000000' ? 'border-blue-500 scale-110' : 'border-slate-300 dark:border-slate-600'
             } bg-black`}
@@ -628,11 +629,11 @@ export default function Board() {
           />
         </div>
 
-        <div className="flex flex-col items-center gap-1" title="Pen Color">
+        <div className="flex flex-col items-center gap-1" title="Color">
           <input 
             type="color" 
             value={color} 
-            onChange={(e) => { setColor(e.target.value); setTool('pen'); }}
+            onChange={(e) => setColor(e.target.value)}
             className="w-6 h-6 rounded-full overflow-hidden cursor-pointer"
           />
         </div>
@@ -644,7 +645,7 @@ export default function Board() {
           value={lineWidth} 
           onChange={(e) => setLineWidth(e.target.value)}
           className="w-24 accent-blue-500 cursor-pointer"
-          title="Pen Size"
+          title="Size"
         />
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
@@ -657,13 +658,12 @@ export default function Board() {
           <Redo2 className="w-5 h-5" />
         </button>
 
-        <button onClick={() => clearBoard(true)} className="p-2 hover:bg-red-500/20 text-red-500 rounded-full transition-colors" title="Clear Board">
+        <button onClick={() => handleClear(true)} className="p-2 hover:bg-red-500/20 text-red-500 rounded-full transition-colors" title="Clear Board">
           <Trash2 className="w-5 h-5" />
         </button>
 
         <div className="w-px h-8 bg-slate-300 dark:bg-slate-600 mx-1" />
 
-        {/* Connect Phone toggle */}
         {!padConnected && (
           <button
             onClick={() => setShowQR(v => !v)}
@@ -679,6 +679,24 @@ export default function Board() {
         </button>
 
       </div>
+
+      {/* Zoom Widget */}
+      <div className={`absolute bottom-6 right-6 px-3 py-2 rounded-full flex items-center gap-2 z-10 shadow-xl border ${
+        isDark
+          ? 'bg-slate-900/90 border-slate-700 text-slate-100'
+          : 'bg-white/90 border-slate-200 text-slate-800'
+      } backdrop-blur-md`}>
+        <button onClick={handleZoomOut} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors" title="Zoom Out">
+          <ZoomOut className="w-5 h-5" />
+        </button>
+        <button onClick={handleZoomReset} className="text-sm font-medium w-12 text-center hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg py-1 transition-colors" title="Reset Zoom">
+          {Math.round(zoom * 100)}%
+        </button>
+        <button onClick={handleZoomIn} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors" title="Zoom In">
+          <ZoomIn className="w-5 h-5" />
+        </button>
+      </div>
+
     </div>
   );
 }

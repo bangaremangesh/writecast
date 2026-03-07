@@ -939,8 +939,11 @@ export default function Board() {
             <h3 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-slate-800'}`}>
               Connect Phone
             </h3>
-            <p className={`text-sm max-w-[220px] leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Scan this QR code or visit <br/><strong className="text-blue-500 select-all">{window.location.host}/pad</strong><br/> to use your phone as a trackpad.
+            <p className={`text-sm max-w-[240px] leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Scan this QR code or open this link on your phone:
+            </p>
+            <p className="text-xs font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 px-3 py-2 rounded-xl break-all select-all text-center w-full max-w-[240px]">
+              {padUrl}
             </p>
           </div>
 

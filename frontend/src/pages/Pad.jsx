@@ -453,25 +453,6 @@ export default function Pad() {
               <div className="w-full h-px bg-slate-700/60" />
             </>
           )}
-
-          {/* History */}
-          <p className="text-xs text-slate-500 uppercase tracking-widest px-1">History</p>
-          <div className="flex gap-2">
-            <button onClick={() => socket && socket.emit('undo', { sessionId })}
-              className="flex-1 flex items-center justify-center gap-1 py-3 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 active:scale-95 transition-all text-sm"
-            ><Undo2 className="w-4 h-4" /> Undo</button>
-            <button onClick={() => socket && socket.emit('redo', { sessionId })}
-              className="flex-1 flex items-center justify-center gap-1 py-3 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 active:scale-95 transition-all text-sm"
-            ><Redo2 className="w-4 h-4" /> Redo</button>
-          </div>
-          <div className="w-full h-px bg-slate-700/60" />
-
-          {/* Clear */}
-          <button onClick={handleClear}
-            className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 active:scale-95 transition-all text-sm font-medium mt-auto"
-          >
-            <Trash2 className="w-5 h-5" /> Clear Board
-          </button>
         </div>
 
         {/* ── Drawing Area ── */}

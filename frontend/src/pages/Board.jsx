@@ -28,6 +28,7 @@ export default function Board() {
   const fabricRef = useRef(null);
   const fileInputRef = useRef(null);
   const [searchParams] = useSearchParams();
+  const preSessionId = searchParams.get('session');
   
   const [socket, setSocket] = useState(null);
   const [sessionId, setSessionId] = useState('');
@@ -57,6 +58,31 @@ export default function Board() {
 
   // Zoom state
   const [zoom, setZoom] = useState(1);
+  const socketStateRef = useRef(null);
+  const sessionIdRef = useRef('');
+  const toolRef = useRef('pen');
+  const historyRef = useRef([]);
+  const redoListRef = useRef([]);
+
+  useEffect(() => {
+    socketStateRef.current = socket;
+  }, [socket]);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    toolRef.current = tool;
+  }, [tool]);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    redoListRef.current = redoList;
+  }, [redoList]);
 
   const handleZoomIn = () => {
     const fc = fabricRef.current;
@@ -111,10 +137,12 @@ export default function Board() {
         saveHistoryState(fc);
         setTool('select'); // Automatically shift to select mode so they can resize
         
-        if (socket) {
+        const activeSocket = socketStateRef.current;
+        const activeSessionId = sessionIdRef.current;
+        if (activeSocket && activeSessionId) {
           // If we want socket syncing of images, emitting raw base64 data might be too heavy, 
           // but we will do it via object JSON for now.
-          socket.emit('object:added', { sessionId, obj: img.toJSON() });
+          activeSocket.emit('object:added', { sessionId: activeSessionId, obj: img.toJSON() });
         }
       });
     };
@@ -147,7 +175,10 @@ export default function Board() {
         fc.backgroundColor = bgColorRef.current;
         fc.requestRenderAll();
         // Reset history purely for the new page view session
-        setHistory([targetPage.state]);
+        const nextHistory = [targetPage.state];
+        historyRef.current = nextHistory;
+        setHistory(nextHistory);
+        redoListRef.current = [];
         setRedoList([]);
         setCurrentPageIndex(index);
       });
@@ -155,7 +186,10 @@ export default function Board() {
       fc.clear();
       fc.backgroundColor = bgColorRef.current;
       fc.requestRenderAll();
-      setHistory([fc.toJSON()]);
+      const nextHistory = [fc.toJSON()];
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
+      redoListRef.current = [];
       setRedoList([]);
       setCurrentPageIndex(index);
     }
@@ -172,7 +206,10 @@ export default function Board() {
       fc.clear();
       fc.backgroundColor = bgColorRef.current;
       fc.requestRenderAll();
-      setHistory([fc.toJSON()]);
+      const nextHistory = [fc.toJSON()];
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
+      redoListRef.current = [];
       setRedoList([]);
       setCurrentPageIndex(newIndex);
     }
@@ -183,37 +220,54 @@ export default function Board() {
     if (!fc) return;
     const json = fc.toJSON();
     // avoid pushing duplicates rapidly
-    setHistory(prev => [...prev, json]);
+    setHistory(prev => {
+      const nextHistory = [...prev, json];
+      historyRef.current = nextHistory;
+      return nextHistory;
+    });
+    redoListRef.current = [];
     setRedoList([]);
   }
 
   function handleUndo() {
-    if (history.length > 1) {
-      const fc = fabricRef.current;
-      const nextH = [...history];
-      const cur = nextH.pop(); // pop current
-      setRedoList(prev => [...prev, cur]);
-      setHistory(nextH);
-      const prevState = nextH[nextH.length - 1]; // state right before
-      
-      fc.loadFromJSON(prevState, () => {
-        fc.requestRenderAll();
-      });
-    }
+    const fc = fabricRef.current;
+    const currentHistory = historyRef.current;
+    if (!fc || currentHistory.length <= 1) return;
+
+    const nextHistory = [...currentHistory];
+    const current = nextHistory.pop();
+    const nextRedo = [...redoListRef.current, current];
+
+    historyRef.current = nextHistory;
+    redoListRef.current = nextRedo;
+    setHistory(nextHistory);
+    setRedoList(nextRedo);
+
+    const prevState = nextHistory[nextHistory.length - 1];
+    fc.loadFromJSON(prevState, () => {
+      fc.backgroundColor = bgColorRef.current;
+      fc.requestRenderAll();
+    });
   }
 
   function handleRedo() {
-    if (redoList.length > 0) {
-      const fc = fabricRef.current;
-      const newR = [...redoList];
-      const nextState = newR.pop();
-      setHistory(prev => [...prev, nextState]);
-      setRedoList(newR);
-      
-      fc.loadFromJSON(nextState, () => {
-        fc.requestRenderAll();
-      });
-    }
+    const fc = fabricRef.current;
+    const currentRedo = redoListRef.current;
+    if (!fc || currentRedo.length === 0) return;
+
+    const nextRedo = [...currentRedo];
+    const nextState = nextRedo.pop();
+    const nextHistory = [...historyRef.current, nextState];
+
+    historyRef.current = nextHistory;
+    redoListRef.current = nextRedo;
+    setHistory(nextHistory);
+    setRedoList(nextRedo);
+
+    fc.loadFromJSON(nextState, () => {
+      fc.backgroundColor = bgColorRef.current;
+      fc.requestRenderAll();
+    });
   }
 
   function handleClear(emit = true) {
@@ -222,7 +276,11 @@ export default function Board() {
       fc.clear();
       fc.backgroundColor = bgColorRef.current;
       saveHistoryState(fc);
-      if (emit && socket) socket.emit('clear-board', { sessionId });
+      const activeSocket = socketStateRef.current;
+      const activeSessionId = sessionIdRef.current;
+      if (emit && activeSocket && activeSessionId) {
+        activeSocket.emit('clear-board', { sessionId: activeSessionId });
+      }
     }
   }
 
@@ -327,16 +385,22 @@ export default function Board() {
     // Track path creation from free drawing so we can make it selectable and socket sync
     fc.on('path:created', (opt) => {
       const path = opt.path;
-      path.set({ selectable: tool === 'select', evented: tool === 'select' });
+      path.set({ selectable: toolRef.current === 'select', evented: toolRef.current === 'select' });
       saveHistoryState(fc);
-      if (socket) {
-        socket.emit('object:added', { sessionId, obj: path.toJSON() });
+      const activeSocket = socketStateRef.current;
+      const activeSessionId = sessionIdRef.current;
+      if (activeSocket && activeSessionId) {
+        activeSocket.emit('object:added', { sessionId: activeSessionId, obj: path.toJSON() });
       }
     });
 
     fc.on('object:modified', (opt) => {
       saveHistoryState(fc);
-      if (socket) socket.emit('object:modified', { sessionId, obj: opt.target.toJSON() });
+      const activeSocket = socketStateRef.current;
+      const activeSessionId = sessionIdRef.current;
+      if (activeSocket && activeSessionId) {
+        activeSocket.emit('object:modified', { sessionId: activeSessionId, obj: opt.target.toJSON() });
+      }
     });
 
     return () => {
@@ -354,7 +418,11 @@ export default function Board() {
     if (fc) {
       fc.backgroundColor = newColor;
       fc.requestRenderAll();
-      if (socket) socket.emit('change-bg', { sessionId, color: newColor });
+      const activeSocket = socketStateRef.current;
+      const activeSessionId = sessionIdRef.current;
+      if (activeSocket && activeSessionId) {
+        activeSocket.emit('change-bg', { sessionId: activeSessionId, color: newColor });
+      }
     }
   }
 
@@ -514,7 +582,11 @@ export default function Board() {
       if (currentShape) {
         currentShape.setCoords();
         saveHistoryState(fc);
-        if (socket) socket.emit('object:added', { sessionId, obj: currentShape.toJSON() });
+        const activeSocket = socketStateRef.current;
+        const activeSessionId = sessionIdRef.current;
+        if (activeSocket && activeSessionId) {
+          activeSocket.emit('object:added', { sessionId: activeSessionId, obj: currentShape.toJSON() });
+        }
       }
       currentShape = null;
       setTool('select');
@@ -553,25 +625,31 @@ export default function Board() {
       fc.off('mouse:up', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tool, shapeType, shapeFill, color, lineWidth, socket, sessionId]);
+  }, [tool, shapeType, shapeFill, color, lineWidth]);
 
   // Socket Initializer & Event Listeners
   useEffect(() => {
-    const preSession = searchParams.get('session');
-    const newSessionId = preSession || Math.random().toString(36).substring(2, 8);
+    const newSessionId = preSessionId || Math.random().toString(36).substring(2, 8);
     setSessionId(newSessionId);
-    if (preSession) setPadConnected(true);
+    sessionIdRef.current = newSessionId;
+    setPadConnected(false);
     setPadUrl(`${window.location.origin}/pad/${newSessionId}`);
 
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
+    const handleSessionState = ({ participants = [] }) => {
+      const hasPad = participants.some(participant => participant.role === 'pad');
+      setPadConnected(hasPad);
+    };
+
     newSocket.on('connect', () => newSocket.emit('join-session', { sessionId: newSessionId, role: 'board' }));
-    newSocket.on('participant-joined', ({ role }) => { if (role === 'pad') setPadConnected(true); });
+    newSocket.on('session-state', handleSessionState);
     
-    return () => newSocket.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      newSocket.off('session-state', handleSessionState);
+      newSocket.close();
+    };
+  }, [preSessionId]);
 
   // Listen for socket events from Pad
   const activeRemoteObj = useRef(null);
@@ -591,7 +669,7 @@ export default function Board() {
       const polyline = new fabric.Polyline(remotePathPoints, {
         stroke: dc, strokeWidth: dw, fill: 'transparent',
         strokeLineCap: 'round', strokeLineJoin: 'round',
-        selectable: tool === 'select', evented: tool === 'select',
+        selectable: toolRef.current === 'select', evented: toolRef.current === 'select',
         originX: 'center', originY: 'center'
       });
       fc.add(polyline);
@@ -625,7 +703,7 @@ export default function Board() {
     socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {
       const common = {
         left: ax(x), top: ay(y), fill: fill ? sc : 'transparent',
-        stroke: sc, strokeWidth: sw, selectable: tool === 'select', evented: tool === 'select',
+        stroke: sc, strokeWidth: sw, selectable: toolRef.current === 'select', evented: toolRef.current === 'select',
       };
       let s;
       if (shape === 'rect') s = new fabric.Rect({ ...common, width: 0, height: 0 });
@@ -670,7 +748,7 @@ export default function Board() {
     socket.on('add-text', ({ text, x, y, color: tc, fontSize }) => {
       const textObj = new fabric.IText(text, {
         left: ax(x), top: ay(y), fill: tc, fontSize, fontFamily: 'system-ui, sans-serif',
-        selectable: tool === 'select', evented: tool === 'select',
+        selectable: toolRef.current === 'select', evented: toolRef.current === 'select',
       });
       fc.add(textObj);
       saveHistoryState(fc);
@@ -718,8 +796,7 @@ export default function Board() {
       socket.off('clear-board'); socket.off('undo'); socket.off('redo'); socket.off('add-text');
       socket.off('set-tool'); socket.off('zoom-in'); socket.off('zoom-out'); socket.off('zoom-reset'); socket.off('add-image');
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, tool]);
+  }, [socket]);
 
   const isDark = bgColor === '#000000';
 

@@ -44,7 +44,6 @@ export default function Pad() {
   const localHistoryRef = useRef([]);
   const currentStrokeRef = useRef(null);
 
-  const [socket, setSocket]         = useState(null);
   const [color, setColor]           = useState('#000000');
   const [lineWidth, setLineWidth]   = useState(5);
   const [tool, setTool]             = useState('pen');
@@ -62,6 +61,26 @@ export default function Pad() {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
+
+  function redrawLocalCanvas() {
+    const canvas = localCanvasRef.current;
+    const ctx = ctxRef.current;
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    localHistoryRef.current.forEach(stroke => {
+      ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
+      ctx.strokeStyle = stroke.tool === 'eraser' ? 'rgba(0,0,0,1)' : stroke.color;
+      ctx.lineWidth = stroke.lineWidth;
+      ctx.beginPath();
+      if (stroke.points.length > 0) {
+        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+        for(let i=1; i<stroke.points.length; i++) {
+          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        }
+      }
+      ctx.stroke();
+    });
+  }
 
   // Setup local scratchpad canvas
   useEffect(() => {
@@ -84,26 +103,6 @@ export default function Pad() {
     return () => window.removeEventListener('resize', resize);
   }, []);
 
-  const redrawLocalCanvas = () => {
-    const canvas = localCanvasRef.current;
-    const ctx = ctxRef.current;
-    if (!canvas || !ctx) return;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    localHistoryRef.current.forEach(stroke => {
-      ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over';
-      ctx.strokeStyle = stroke.tool === 'eraser' ? 'rgba(0,0,0,1)' : stroke.color;
-      ctx.lineWidth = stroke.lineWidth;
-      ctx.beginPath();
-      if (stroke.points.length > 0) {
-        ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-        for(let i=1; i<stroke.points.length; i++) {
-          ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
-        }
-      }
-      ctx.stroke();
-    });
-  };
-
   // Keep refs in sync with state
   useEffect(() => { toolRef.current = tool; }, [tool]);
   useEffect(() => { colorRef.current = color; }, [color]);
@@ -113,7 +112,6 @@ export default function Pad() {
   // Socket setup
   useEffect(() => {
     const s = io(SOCKET_URL);
-    setSocket(s);
     socketRef.current = s;
     s.on('connect', () => s.emit('join-session', { sessionId, role: 'pad' }));
     s.on('change-bg', ({ color: c }) => setBgColor(c));
@@ -125,11 +123,13 @@ export default function Pad() {
 
   // Fast normalise
   const norm = (e, rect) => {
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
     return {
-      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height)),
-      clientX: e.clientX,
-      clientY: e.clientY
+      x: Math.max(0, Math.min(1, localX / rect.width)),
+      y: Math.max(0, Math.min(1, localY / rect.height)),
+      clientX: localX,
+      clientY: localY
     };
   };
 
@@ -263,7 +263,7 @@ export default function Pad() {
   };
 
   const handleClear = () => {
-    const s = socketRef.current ?? socket;
+    const s = socketRef.current;
     if (s) s.emit('clear-board', { sessionId: sessionIdRef.current ?? sessionId });
     if (navigator.vibrate) navigator.vibrate(50);
     // Clear local cache
@@ -272,7 +272,7 @@ export default function Pad() {
   };
 
   const handleUndoRedo = (action) => {
-    const s = socketRef.current ?? socket;
+    const s = socketRef.current;
     if (s) s.emit(action, { sessionId: sessionIdRef.current ?? sessionId });
     if (action === 'undo') {
       localHistoryRef.current.pop();
@@ -286,16 +286,17 @@ export default function Pad() {
   const handleSetTool = (t) => {
     setTool(t);
     toolRef.current = t;
-    const s = socket;
-    if (s) s.emit('set-tool', { sessionId, tool: t });
+    const s = socketRef.current;
+    if (s) s.emit('set-tool', { sessionId: sessionIdRef.current ?? sessionId, tool: t });
   };
 
   const submitText = () => {
-    if (textInput.trim() && socket && textPos) {
+    const s = socketRef.current;
+    if (textInput.trim() && s && textPos) {
       localHistoryRef.current = [];
       redrawLocalCanvas(); // Clear local strokes conceptually when adding permanent text, or just leave it. Leaving it is fine.
-      socket.emit('add-text', {
-        sessionId,
+      s.emit('add-text', {
+        sessionId: sessionIdRef.current ?? sessionId,
         id: Math.random().toString(36).substr(2, 9),
         text: textInput.trim(),
         x: textPos.x, y: textPos.y,

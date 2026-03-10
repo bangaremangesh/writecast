@@ -22,16 +22,62 @@ const io = new Server(httpServer, {
   }
 });
 
+const sessions = new Map();
+
+function getSessionSnapshot(sessionId) {
+  const participants = sessions.get(sessionId);
+  if (!participants) {
+    return { sessionId, participants: [] };
+  }
+
+  return {
+    sessionId,
+    participants: Array.from(participants.entries()).map(([socketId, role]) => ({
+      socketId,
+      role
+    }))
+  };
+}
+
+function updateSessionMembership(sessionId, socketId, role) {
+  let participants = sessions.get(sessionId);
+  if (!participants) {
+    participants = new Map();
+    sessions.set(sessionId, participants);
+  }
+  participants.set(socketId, role);
+}
+
+function removeSessionMembership(sessionId, socketId) {
+  const participants = sessions.get(sessionId);
+  if (!participants) return;
+
+  participants.delete(socketId);
+  if (participants.size === 0) {
+    sessions.delete(sessionId);
+  }
+}
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   // Join a specific session room
   socket.on('join-session', ({ sessionId, role }) => {
-    socket.join(sessionId);
-    console.log(`Socket ${socket.id} joined session ${sessionId} as ${role}`);
+    if (typeof sessionId !== 'string' || sessionId.trim() === '') return;
+
+    const roomId = sessionId.trim();
+    const participantRole = role === 'pad' ? 'pad' : 'board';
+
+    socket.join(roomId);
+    socket.data.sessionId = roomId;
+    socket.data.role = participantRole;
+    updateSessionMembership(roomId, socket.id, participantRole);
+
+    console.log(`Socket ${socket.id} joined session ${roomId} as ${participantRole}`);
+    io.to(roomId).emit('session-state', getSessionSnapshot(roomId));
     
     // Notify room that someone joined
-    socket.to(sessionId).emit('participant-joined', { role, socketId: socket.id });
+    socket.to(roomId).emit('participant-joined', { role: participantRole, socketId: socket.id });
   });
 
   // List of events to simply relay to others in the room
@@ -39,6 +85,9 @@ io.on('connection', (socket) => {
     'draw-start',
     'draw',
     'draw-end',
+    'shape-start',
+    'shape-preview',
+    'shape-end',
     'shape-drawn',
     'clear-board',
     'undo',
@@ -51,19 +100,39 @@ io.on('connection', (socket) => {
     'laser-start',
     'laser-end',
     'add-sticky',
-    'remove-sticky'
+    'remove-sticky',
+    'add-text',
+    'set-tool',
+    'zoom-in',
+    'zoom-out',
+    'zoom-reset',
+    'add-image',
+    'object:added',
+    'object:modified',
+    'text-move-start',
+    'text-move',
+    'text-move-end'
   ];
 
   relayEvents.forEach(event => {
     socket.on(event, (data) => {
-      if (data && data.sessionId) {
+      if (data && typeof data.sessionId === 'string' && data.sessionId.trim() !== '') {
         // Broadcast to everyone in the room except the sender
-        socket.to(data.sessionId).emit(event, data);
+        const roomId = data.sessionId.trim();
+        socket.to(roomId).emit(event, data);
       }
     });
   });
 
   socket.on('disconnect', () => {
+    const { sessionId, role } = socket.data;
+    if (typeof sessionId === 'string' && sessionId.trim() !== '') {
+      const roomId = sessionId.trim();
+      removeSessionMembership(roomId, socket.id);
+      io.to(roomId).emit('session-state', getSessionSnapshot(roomId));
+      socket.to(roomId).emit('participant-left', { role, socketId: socket.id });
+    }
+
     console.log('Client disconnected:', socket.id);
   });
 });

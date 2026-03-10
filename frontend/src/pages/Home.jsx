@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PenTool, Smartphone, Monitor, ChevronRight, Info, Wifi, X, CheckCircle2, Loader2 } from 'lucide-react';
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
@@ -25,21 +26,40 @@ export default function Home() {
     setShowQR(true);
 
     // Connect socket
+    if (socketRef.current) {
+      socketRef.current.close();
+    }
     const sock = io(SOCKET_URL);
     socketRef.current = sock;
+    let didConnect = false;
+
+    const completeConnection = () => {
+      if (didConnect) return;
+      didConnect = true;
+      setConnectionStatus('connected');
+      // Short delay to show success animation before navigating
+      setTimeout(() => {
+        if (socketRef.current === sock) {
+          socketRef.current = null;
+        }
+        sock.close();
+        navigate(`/board?session=${newSessionId}`);
+      }, 1000);
+    };
 
     sock.on('connect', () => {
       sock.emit('join-session', { sessionId: newSessionId, role: 'board' });
     });
 
+    sock.on('session-state', ({ participants = [] }) => {
+      if (participants.some(participant => participant.role === 'pad')) {
+        completeConnection();
+      }
+    });
+
     sock.on('participant-joined', ({ role }) => {
       if (role === 'pad') {
-        setConnectionStatus('connected');
-        // Short delay to show success animation before navigating
-        setTimeout(() => {
-          sock.close();
-          navigate(`/board?session=${newSessionId}`);
-        }, 1000);
+        completeConnection();
       }
     });
   }

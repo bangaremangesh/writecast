@@ -680,7 +680,7 @@ export default function Board() {
     socket.on('draw', ({ x, y }) => {
       if (!activeRemoteObj.current) return;
       remotePathPoints.push({ x: ax(x), y: ay(y) });
-      activeRemoteObj.current.set({ points: remotePathPoints });
+      activeRemoteObj.current.set({ points: [...remotePathPoints] });
       // Throttle canvas repaints to ~60fps via RAF
       if (!drawRafPending) {
         drawRafPending = true;

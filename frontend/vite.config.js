@@ -14,4 +14,13 @@ export default defineConfig({
   preview: {
     host: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          fabric: ['fabric']
+        }
+      }
+    }
+  }
 })

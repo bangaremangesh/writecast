@@ -5,6 +5,7 @@ import QRCode from 'react-qr-code';
 import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus, ImagePlus } from 'lucide-react';
 import * as fabric from 'fabric';
 import jsPDF from 'jspdf';
+import msgpackParser from 'socket.io-msgpack-parser';
 import { SOCKET_URL, resolveShareOrigin, buildPadUrl, isLoopbackHost } from '../lib/connection';
 
 // Custom SVG Cursors
@@ -383,7 +384,7 @@ export default function Board() {
     // Track path creation from free drawing so we can make it selectable and socket sync
     fc.on('path:created', (opt) => {
       const path = opt.path;
-      path.set({ selectable: toolRef.current === 'select', evented: toolRef.current === 'select' });
+      path.set({ selectable: toolRef.current === 'select', evented: toolRef.current === 'select', padding: 10 });
       saveHistoryState(fc);
       const activeSocket = socketStateRef.current;
       const activeSessionId = sessionIdRef.current;
@@ -477,7 +478,7 @@ export default function Board() {
           activeObj.set('fill', color);
         } else {
           activeObj.set('stroke', color);
-          if (activeObj.fill && activeObj.fill !== 'transparent') {
+          if (activeObj.fill && activeObj.fill !== 'transparent' && activeObj.fill !== 'rgba(0,0,0,0)') {
              activeObj.set('fill', color);
           }
         }
@@ -505,11 +506,12 @@ export default function Board() {
         const commonProps = {
           left: pointer.x,
           top: pointer.y,
-          fill: shapeFill ? color : 'transparent',
+          fill: shapeFill ? color : 'rgba(0,0,0,0)',
           stroke: color,
           strokeWidth: parseInt(lineWidth, 10) || 5,
           selectable: false,
           evented: false,
+          padding: 10,
         };
 
         if (shapeType === 'rect') {
@@ -652,7 +654,7 @@ export default function Board() {
     }
     setupShareUrl();
 
-    const newSocket = io(SOCKET_URL);
+    const newSocket = io(SOCKET_URL, { parser: msgpackParser });
     setSocket(newSocket);
     const handleSessionState = ({ participants = [] }) => {
       const hasPad = participants.some(participant => participant.role === 'pad');
@@ -688,11 +690,28 @@ export default function Board() {
         stroke: dc, strokeWidth: dw, fill: 'transparent',
         strokeLineCap: 'round', strokeLineJoin: 'round',
         selectable: toolRef.current === 'select', evented: toolRef.current === 'select',
-        originX: 'center', originY: 'center'
+        originX: 'center', originY: 'center', padding: 10
       });
       fc.add(polyline);
       activeRemoteObj.current = polyline;
       drawRafPending = false;
+    });
+
+    socket.on('draw-batch', ({ pts }) => {
+      if (!activeRemoteObj.current || !pts || pts.length === 0) return;
+      
+      pts.forEach(([nx, ny]) => {
+        remotePathPoints.push({ x: ax(nx), y: ay(ny) });
+      });
+      activeRemoteObj.current.set({ points: [...remotePathPoints] });
+      
+      if (!drawRafPending) {
+        drawRafPending = true;
+        requestAnimationFrame(() => {
+          drawRafPending = false;
+          fc.requestRenderAll();
+        });
+      }
     });
 
     socket.on('draw', ({ x, y }) => {
@@ -704,6 +723,20 @@ export default function Board() {
         drawRafPending = true;
         requestAnimationFrame(() => {
           drawRafPending = false;
+          fc.requestRenderAll();
+        });
+      }
+    });
+
+    socket.on('request-snapshot', (targetSocketId) => {
+      const boardState = fc.toJSON(['selectable', 'evented', 'id', 'padding']);
+      socket.emit('provide-snapshot', { targetSocketId, boardState });
+    });
+
+    socket.on('snapshot', (boardState) => {
+      if (boardState) {
+        fc.loadFromJSON(boardState, () => {
+          fc.backgroundColor = bgColorRef.current;
           fc.requestRenderAll();
         });
       }
@@ -737,8 +770,8 @@ export default function Board() {
 
     socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {
       const common = {
-        left: ax(x), top: ay(y), fill: fill ? sc : 'transparent',
-        stroke: sc, strokeWidth: sw, selectable: toolRef.current === 'select', evented: toolRef.current === 'select',
+        left: ax(x), top: ay(y), fill: fill ? sc : 'rgba(0,0,0,0)',
+        stroke: sc, strokeWidth: sw, selectable: toolRef.current === 'select', evented: toolRef.current === 'select', padding: 10,
       };
       let s;
       if (shape === 'rect') s = new fabric.Rect({ ...common, width: 0, height: 0 });

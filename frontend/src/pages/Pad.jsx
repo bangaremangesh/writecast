@@ -5,6 +5,7 @@ import {
   Pen, Eraser, Trash2, Undo2, Redo2, Type
 } from 'lucide-react';
 import * as fabric from 'fabric';
+import msgpackParser from 'socket.io-msgpack-parser';
 import { SOCKET_URL } from '../lib/connection';
 
 const QUICK_COLORS = [
@@ -29,8 +30,9 @@ export default function Pad() {
 
   // Use refs for high-frequency drawing state to avoid React re-renders mid-stroke
   const isDrawingRef   = useRef(false);
-  const lastEmitRef    = useRef(0);
-  const THROTTLE_MS    = 35; // Cap to ~28 emits per second
+  const pointBatchRef  = useRef([]);
+  const batchTimeoutRef= useRef(null);
+  const BATCH_MS       = 50; // Send batch every 50ms (≈20 times a sec for many points)
   const socketRef      = useRef(null);
   const toolRef        = useRef('pen');
   const colorRef       = useRef('#000000');
@@ -58,7 +60,7 @@ export default function Pad() {
 
   // Socket setup
   useEffect(() => {
-    const s = io(SOCKET_URL);
+    const s = io(SOCKET_URL, { parser: msgpackParser });
     socketRef.current = s;
     s.on('connect', () => s.emit('join-session', { sessionId, role: 'pad' }));
     s.on('change-bg', ({ color: c }) => {
@@ -114,7 +116,7 @@ export default function Pad() {
       }
 
       isDrawingRef.current = true;
-      lastEmitRef.current = Date.now();
+      pointBatchRef.current = [];
       
       const s = socketRef.current;
       const sid = sessionIdRef.current;
@@ -150,14 +152,18 @@ export default function Pad() {
 
       if (!isDrawingRef.current) return;
 
-      const now = Date.now();
-      if (now - lastEmitRef.current < THROTTLE_MS) return;
-      lastEmitRef.current = now;
+      pointBatchRef.current.push([x, y]);
 
-      const s = socketRef.current;
-      const sid = sessionIdRef.current;
-      if (s && sid) {
-        s.emit('draw', { sessionId: sid, x, y });
+      if (!batchTimeoutRef.current) {
+        batchTimeoutRef.current = setTimeout(() => {
+          const s = socketRef.current;
+          const sid = sessionIdRef.current;
+          if (s && sid && pointBatchRef.current.length > 0) {
+            s.emit('draw-batch', { sessionId: sid, pts: pointBatchRef.current });
+            pointBatchRef.current = [];
+          }
+          batchTimeoutRef.current = null;
+        }, BATCH_MS);
       }
     });
 
@@ -177,6 +183,18 @@ export default function Pad() {
         return;
       }
       isDrawingRef.current = false;
+      
+      // Flush any remaining points instantly on mouse up
+      if (batchTimeoutRef.current) {
+        clearTimeout(batchTimeoutRef.current);
+        batchTimeoutRef.current = null;
+      }
+      const s = socketRef.current;
+      const sid = sessionIdRef.current;
+      if (s && sid && pointBatchRef.current.length > 0) {
+        s.emit('draw-batch', { sessionId: sid, pts: pointBatchRef.current });
+        pointBatchRef.current = [];
+      }
     });
 
     fc.on('path:created', (opt) => {

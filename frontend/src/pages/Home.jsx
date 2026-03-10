@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PenTool, Smartphone, Monitor, ChevronRight, Info, Wifi, X, CheckCircle2, Loader2 } from 'lucide-react';
 // eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
+import msgpackParser from 'socket.io-msgpack-parser';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
 import { SOCKET_URL, resolveShareOrigin, buildPadUrl, isLoopbackHost } from '../lib/connection';

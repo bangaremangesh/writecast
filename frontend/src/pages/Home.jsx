@@ -5,25 +5,38 @@ import { PenTool, Smartphone, Monitor, ChevronRight, Info, Wifi, X, CheckCircle2
 import { motion, AnimatePresence } from 'framer-motion';
 import { io } from 'socket.io-client';
 import QRCode from 'react-qr-code';
-
-const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.hostname}:3001`;
+import { SOCKET_URL, resolveShareOrigin, buildPadUrl, isLoopbackHost } from '../lib/connection';
 
 export default function Home() {
   const navigate = useNavigate();
   const [showQR, setShowQR] = useState(false);
   const [sessionId, setSessionId] = useState('');
   const [padUrl, setPadUrl] = useState('');
+  const [shareWarning, setShareWarning] = useState('');
+  const [connectionError, setConnectionError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('waiting'); // 'waiting' | 'connected'
   const socketRef = useRef(null);
 
-  function startConnect() {
+  async function startConnect() {
     // Generate session
     const newSessionId = Math.random().toString(36).substring(2, 8);
     setSessionId(newSessionId);
-    const url = `${window.location.origin}/pad/${newSessionId}`;
+    const shareOrigin = await resolveShareOrigin();
+    const url = buildPadUrl(shareOrigin, newSessionId);
     setPadUrl(url);
     setConnectionStatus('waiting');
+    setConnectionError('');
     setShowQR(true);
+    try {
+      const urlHost = new URL(url).hostname;
+      setShareWarning(
+        isLoopbackHost(urlHost)
+          ? "This QR uses localhost. Open WriteCast using your PC's LAN IP to connect from phone."
+          : ''
+      );
+    } catch {
+      setShareWarning('');
+    }
 
     // Connect socket
     if (socketRef.current) {
@@ -48,7 +61,12 @@ export default function Home() {
     };
 
     sock.on('connect', () => {
+      setConnectionError('');
       sock.emit('join-session', { sessionId: newSessionId, role: 'board' });
+    });
+
+    sock.on('connect_error', () => {
+      setConnectionError('Cannot reach realtime server on port 3001. Start backend and retry.');
     });
 
     sock.on('session-state', ({ participants = [] }) => {
@@ -71,6 +89,8 @@ export default function Home() {
     }
     setShowQR(false);
     setConnectionStatus('waiting');
+    setShareWarning('');
+    setConnectionError('');
   }
 
   // Cleanup on unmount
@@ -266,11 +286,22 @@ export default function Home() {
                       Session: {sessionId}
                     </div>
 
+                    {shareWarning && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 max-w-[260px] leading-relaxed">
+                        {shareWarning}
+                      </p>
+                    )}
+
                     {/* Status */}
                     <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                       <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
                       <span>Waiting for device to connect…</span>
                     </div>
+                    {connectionError && (
+                      <p className="text-xs text-red-500 dark:text-red-400 max-w-[260px] leading-relaxed text-center">
+                        {connectionError}
+                      </p>
+                    )}
                   </motion.div>
                 ) : (
                   <motion.div

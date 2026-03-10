@@ -5,10 +5,7 @@ import QRCode from 'react-qr-code';
 import { Pen, Eraser, Download, Trash2, Undo2, Redo2, Smartphone, Type, Square, Circle, Minus, PaintBucket, Triangle, Shapes, MousePointer2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, Plus, ImagePlus } from 'lucide-react';
 import * as fabric from 'fabric';
 import jsPDF from 'jspdf';
-
-// In production, the socket connects to the same host serving the frontend.
-// In development, it connects to the local dev server hostname.
-const SOCKET_URL = import.meta.env.PROD ? undefined : `http://${window.location.hostname}:3001`;
+import { SOCKET_URL, resolveShareOrigin, buildPadUrl, isLoopbackHost } from '../lib/connection';
 
 // Custom SVG Cursors
 // Generates a circle cursor SVG matching the current pen color & brush size
@@ -46,6 +43,7 @@ export default function Board() {
   const [shapeType, setShapeType] = useState('rect');
   const [shapeFill, setShapeFill] = useState(false);
   const [padUrl, setPadUrl] = useState('');
+  const [shareWarning, setShareWarning] = useState('');
   const [laserPos, setLaserPos] = useState(null);
 
   // Multi-page state
@@ -629,11 +627,30 @@ export default function Board() {
 
   // Socket Initializer & Event Listeners
   useEffect(() => {
+    let isCancelled = false;
     const newSessionId = preSessionId || Math.random().toString(36).substring(2, 8);
     setSessionId(newSessionId);
     sessionIdRef.current = newSessionId;
     setPadConnected(false);
-    setPadUrl(`${window.location.origin}/pad/${newSessionId}`);
+
+    async function setupShareUrl() {
+      const shareOrigin = await resolveShareOrigin();
+      const url = buildPadUrl(shareOrigin, newSessionId);
+      if (isCancelled) return;
+
+      setPadUrl(url);
+      try {
+        const urlHost = new URL(url).hostname;
+        setShareWarning(
+          isLoopbackHost(urlHost)
+            ? "This link uses localhost. Open WriteCast with your PC's LAN IP to use phone sync."
+            : ''
+        );
+      } catch {
+        setShareWarning('');
+      }
+    }
+    setupShareUrl();
 
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
@@ -646,6 +663,7 @@ export default function Board() {
     newSocket.on('session-state', handleSessionState);
     
     return () => {
+      isCancelled = true;
       newSocket.off('session-state', handleSessionState);
       newSocket.close();
     };
@@ -691,11 +709,28 @@ export default function Board() {
       }
     });
 
-    socket.on('draw-end', () => {
+        socket.on('draw-end', ({ path, padWidth, padHeight } = {}) => {
       if (activeRemoteObj.current) {
-        activeRemoteObj.current.setCoords();
-        saveHistoryState(fc);
+        fc.remove(activeRemoteObj.current);
         activeRemoteObj.current = null;
+      }
+      if (path && padWidth && padHeight) {
+        fabric.util.enlivenObjects([path]).then((enlivened) => {
+          const pathObj = enlivened[0];
+          const scaleX = fc.width / padWidth;
+          const scaleY = fc.height / padHeight;
+          pathObj.set({
+            scaleX: (pathObj.scaleX || 1) * scaleX,
+            scaleY: (pathObj.scaleY || 1) * scaleY,
+            left: (pathObj.left || 0) * scaleX,
+            top: (pathObj.top || 0) * scaleY,
+            selectable: toolRef.current === 'select',
+            evented: toolRef.current === 'select'
+          });
+          fc.add(pathObj);
+          saveHistoryState(fc);
+          fc.requestRenderAll();
+        });
       }
       drawRafPending = false;
     });
@@ -1064,6 +1099,11 @@ export default function Board() {
             <p className="text-xs font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 px-3 py-2 rounded-xl break-all select-all text-center w-full max-w-[240px]">
               {padUrl}
             </p>
+            {shareWarning && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 max-w-[240px] leading-relaxed mx-auto">
+                {shareWarning}
+              </p>
+            )}
           </div>
 
           <button onClick={() => setShowQR(false)} className={`mt-2 w-full py-3.5 rounded-2xl font-semibold transition-all active:scale-95 ${

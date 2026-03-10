@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -56,6 +57,21 @@ function removeSessionMembership(sessionId, socketId) {
   if (participants.size === 0) {
     sessions.delete(sessionId);
   }
+}
+
+function getLanIPv4Addresses() {
+  const interfaces = os.networkInterfaces();
+  const addresses = [];
+
+  Object.values(interfaces).forEach((iface = []) => {
+    iface.forEach((details) => {
+      const family = typeof details.family === 'string' ? details.family : String(details.family);
+      if (family !== 'IPv4' || details.internal) return;
+      addresses.push(details.address);
+    });
+  });
+
+  return [...new Set(addresses)];
 }
 
 io.on('connection', (socket) => {
@@ -135,6 +151,10 @@ io.on('connection', (socket) => {
 
     console.log('Client disconnected:', socket.id);
   });
+});
+
+app.get('/api/network-info', (req, res) => {
+  res.json({ addresses: getLanIPv4Addresses() });
 });
 
 // Serve frontend static files in production

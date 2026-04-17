@@ -2,7 +2,7 @@ const DEFAULT_DEV_SOCKET = `http://${window.location.hostname}:3001`;
 
 export const SOCKET_URL =
   import.meta.env.VITE_SOCKET_URL?.trim() ||
-  (import.meta.env.PROD ? undefined : DEFAULT_DEV_SOCKET);
+  (import.meta.env.PROD ? window.location.origin : DEFAULT_DEV_SOCKET);
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 

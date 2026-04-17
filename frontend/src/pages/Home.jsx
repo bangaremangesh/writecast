@@ -16,9 +16,12 @@ export default function Home() {
   const [shareWarning, setShareWarning] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('waiting'); // 'waiting' | 'connected'
+  const [isConnecting, setIsConnecting] = useState(false); // prevents duplicate socket on rapid click
   const socketRef = useRef(null);
 
   async function startConnect() {
+    if (isConnecting) return; // prevent duplicate sockets from rapid clicks
+    setIsConnecting(true);
     // Generate session
     const newSessionId = Math.random().toString(36).substring(2, 8);
     setSessionId(newSessionId);
@@ -43,7 +46,9 @@ export default function Home() {
     if (socketRef.current) {
       socketRef.current.close();
     }
-    const sock = io(SOCKET_URL);
+    // CRITICAL: must use msgpackParser to match server — without it, session-state events
+    // are encoded in msgpack but decoded as raw bytes → participants array is always empty
+    const sock = io(SOCKET_URL, { parser: msgpackParser });
     socketRef.current = sock;
     let didConnect = false;
 
@@ -57,6 +62,7 @@ export default function Home() {
           socketRef.current = null;
         }
         sock.close();
+        setIsConnecting(false);
         navigate(`/board?session=${newSessionId}`);
       }, 1000);
     };
@@ -90,6 +96,7 @@ export default function Home() {
     }
     setShowQR(false);
     setConnectionStatus('waiting');
+    setIsConnecting(false);
     setShareWarning('');
     setConnectionError('');
   }
@@ -183,10 +190,11 @@ export default function Home() {
 
           {/* Connect Device */}
           <motion.button
-            whileHover={{ scale: 1.05, boxShadow: "0 20px 25px -5px rgb(99 102 241 / 0.4)" }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={!isConnecting ? { scale: 1.05, boxShadow: "0 20px 25px -5px rgb(99 102 241 / 0.4)" } : {}}
+            whileTap={!isConnecting ? { scale: 0.95 } : {}}
             onClick={startConnect}
-            className="group flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-indigo-500 to-violet-600 text-white rounded-full font-bold text-lg transition-all shadow-xl w-full sm:w-auto justify-center cursor-pointer border border-white/20"
+            disabled={isConnecting}
+            className="group flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-indigo-500 to-violet-600 text-white rounded-full font-bold text-lg transition-all shadow-xl w-full sm:w-auto justify-center cursor-pointer border border-white/20 disabled:opacity-70 disabled:cursor-not-allowed"
           >
             <Wifi className="w-6 h-6" />
             Connect Device

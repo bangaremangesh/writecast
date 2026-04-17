@@ -53,13 +53,16 @@ if (process.env.REDIS_URL) {
 }
 
 // Generate session state snapshot directly from Socket.IO rooms
-async function getSessionSnapshot(roomId) {
+// excludeId: optionally exclude a socket that is in the process of disconnecting
+async function getSessionSnapshot(roomId, excludeId = null) {
   try {
     const sockets = await io.in(roomId).fetchSockets();
-    const participants = sockets.map(s => ({
-      socketId: s.id,
-      role: s.data.role
-    }));
+    const participants = sockets
+      .filter(s => s.id !== excludeId)
+      .map(s => ({
+        socketId: s.id,
+        role: s.data.role
+      }));
     return { sessionId: roomId, participants };
   } catch (error) {
     console.error('Error fetching session snapshot:', error);
@@ -160,13 +163,11 @@ io.on('connection', (socket) => {
 
   relayEvents.forEach(event => {
     socket.on(event, (data) => {
-      let roomId = data?.sessionId || data?.roomId;
-      // Fallback to socket.data.sessionId if not provided in payload
-      if (!roomId && socket.data.sessionId) roomId = socket.data.sessionId;
-
-      if (roomId && typeof roomId === 'string' && roomId.trim() !== '') {
-        // Broadcast to everyone in the room except the sender
-        socket.to(roomId.trim()).emit(event, data);
+      // Always use the server-authoritative session stored on this socket.
+      // Never trust a client-supplied sessionId — prevents cross-session event injection.
+      const roomId = socket.data.sessionId;
+      if (roomId) {
+        socket.to(roomId).emit(event, data);
       }
     });
   });
@@ -176,7 +177,8 @@ io.on('connection', (socket) => {
     if (typeof sessionId === 'string' && sessionId.trim() !== '') {
       const roomId = sessionId.trim();
       
-      const sessionState = await getSessionSnapshot(roomId);
+      // Pass socket.id so it is excluded from the snapshot (it may still appear in fetchSockets during disconnect)
+      const sessionState = await getSessionSnapshot(roomId, socket.id);
       io.to(roomId).emit('session-state', sessionState);
       socket.to(roomId).emit('participant-left', { role, socketId: socket.id });
     }

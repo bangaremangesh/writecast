@@ -5,15 +5,19 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <link rel="canonical" href="https://writecast.in/" />
+    <link rel="sitemap" type="application/xml" href="https://writecast.in/sitemap.xml" />
+
     <!-- Primary Meta Tags -->
     <title>WriteCast – Turn Your Phone into a Wireless Drawing Tablet for PC</title>
     <meta name="title" content="WriteCast – Turn Your Phone into a Wireless Drawing Tablet for PC" />
-    <meta name="description" content="WriteCast lets you turn your smartphone into a wireless drawing tablet for your PC. Scan a QR code and start drawing instantly for teaching, presentations, and digital whiteboards." />
-    <meta name="keywords" content="phone as drawing tablet, wireless drawing tablet, draw on pc with phone, digital whiteboard online, presentation drawing tool, use phone as graphics tablet" />
+    <meta name="description" content="WriteCast lets you turn your smartphone into a wireless drawing tablet for your PC. Scan a QR code and start drawing instantly — perfect for teaching, presentations, and digital whiteboards." />
+    <meta name="keywords" content="phone as drawing tablet, wireless drawing tablet, draw on pc with phone, digital whiteboard online, presentation drawing tool, use phone as graphics tablet, writecast" />
+    <meta name="author" content="WriteCast" />
     <meta name="theme-color" content="#3b82f6" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
 
     <!-- Open Graph / Facebook -->
+    <meta property="og:locale" content="en_US" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://writecast.in/" />
     <meta property="og:title" content="WriteCast – Turn Your Phone into a Wireless Drawing Tablet" />
@@ -21,6 +25,8 @@
     <meta property="og:image" content="https://writecast.in/preview.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="WriteCast app — phone drawing on a PC whiteboard" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:site_name" content="WriteCast" />
 
     <!-- Twitter -->
@@ -29,6 +35,7 @@
     <meta name="twitter:title" content="WriteCast – Turn Your Phone into a Wireless Drawing Tablet" />
     <meta name="twitter:description" content="No hardware needed. Scan a QR code to instantly use your smartphone as a digital whiteboard and drawing pad for your PC." />
     <meta name="twitter:image" content="https://writecast.in/preview.png" />
+    <meta name="twitter:image:alt" content="WriteCast app — phone drawing on a PC whiteboard" />
 
     <script type="application/ld+json">
     {
@@ -46,21 +53,38 @@
             "price": "0",
             "priceCurrency": "USD"
           },
-          "description": "WriteCast turns your smartphone into a wireless drawing tablet for your PC."
+          "description": "WriteCast turns your smartphone into a wireless drawing tablet for your PC. No extra hardware needed — just scan a QR code and draw.",
+          "screenshot": "https://writecast.in/preview.png",
+          "featureList": [
+            "Real-time wireless drawing",
+            "QR code connection",
+            "Works on any browser",
+            "No app install required",
+            "Multi-page whiteboard",
+            "Export as PNG or PDF"
+          ]
         },
         {
           "@type": "Organization",
           "@id": "https://writecast.in/#organization",
           "name": "WriteCast",
           "url": "https://writecast.in/",
-          "logo": "https://writecast.in/logo.png"
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://writecast.in/logo.png"
+          }
         },
         {
           "@type": "WebSite",
           "@id": "https://writecast.in/#website",
           "url": "https://writecast.in/",
           "name": "WriteCast",
-          "description": "Phone to PC Wireless Drawing Tablet"
+          "description": "Turn your phone into a wireless drawing tablet for your PC",
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": "https://writecast.in/?q={search_term_string}",
+            "query-input": "required name=search_term_string"
+          }
         }
       ]
     }

@@ -159,48 +159,63 @@ export default function Board() {
       newPages[currentPageIndex] = { ...newPages[currentPageIndex], state: json };
       return newPages;
     });
+    return json; // return snapshot for callers that need it immediately
   }
 
   function loadPage(index) {
     const fc = fabricRef.current;
     if (!fc) return;
-    
-    // Save current before switching
-    saveCurrentPage();
 
-    const targetPage = pages[index];
-    if (targetPage && targetPage.state) {
-      fc.loadFromJSON(targetPage.state, () => {
+    // Save current page synchronously via functional updater — avoids stale closure
+    const currentJson = fc.toJSON();
+    setPages(prev => {
+      const newPages = [...prev];
+      newPages[currentPageIndex] = { ...newPages[currentPageIndex], state: currentJson };
+      return newPages;
+    });
+
+    setPages(prev => {
+      const targetPage = prev[index];
+      if (targetPage && targetPage.state) {
+        fc.loadFromJSON(targetPage.state, () => {
+          fc.backgroundColor = bgColorRef.current;
+          fc.requestRenderAll();
+          const nextHistory = [targetPage.state];
+          historyRef.current = nextHistory;
+          setHistory(nextHistory);
+          redoListRef.current = [];
+          setRedoList([]);
+        });
+      } else {
+        fc.clear();
         fc.backgroundColor = bgColorRef.current;
         fc.requestRenderAll();
-        // Reset history purely for the new page view session
-        const nextHistory = [targetPage.state];
+        const nextHistory = [fc.toJSON()];
         historyRef.current = nextHistory;
         setHistory(nextHistory);
         redoListRef.current = [];
         setRedoList([]);
-        setCurrentPageIndex(index);
-      });
-    } else {
-      fc.clear();
-      fc.backgroundColor = bgColorRef.current;
-      fc.requestRenderAll();
-      const nextHistory = [fc.toJSON()];
-      historyRef.current = nextHistory;
-      setHistory(nextHistory);
-      redoListRef.current = [];
-      setRedoList([]);
-      setCurrentPageIndex(index);
-    }
+      }
+      return prev; // pages array unchanged at this point
+    });
+    // setCurrentPageIndex must be called outside the updater — updaters must be pure
+    setCurrentPageIndex(index);
   }
 
+
   function handleAddPage() {
-    saveCurrentPage();
-    const newIndex = pages.length;
-    setPages(prev => [...prev, { id: newIndex, state: null }]);
-    
-    // Switch to the newly created blank page
     const fc = fabricRef.current;
+    const currentJson = fc ? fc.toJSON() : null;
+    const newIndex = pages.length; // capture before state update
+
+    setPages(prev => {
+      const updated = [...prev];
+      updated[currentPageIndex] = { ...updated[currentPageIndex], state: currentJson };
+      updated.push({ id: newIndex, state: null });
+      return updated;
+    });
+
+    // Side effects outside the updater — updaters must be pure
     if (fc) {
       fc.clear();
       fc.backgroundColor = bgColorRef.current;
@@ -214,15 +229,18 @@ export default function Board() {
     }
   }
 
+
   // --- Helper Functions ---
+  const MAX_HISTORY = 50;
   function saveHistoryState(fc) {
     if (!fc) return;
     const json = fc.toJSON();
-    // avoid pushing duplicates rapidly
     setHistory(prev => {
-      const nextHistory = [...prev, json];
-      historyRef.current = nextHistory;
-      return nextHistory;
+      const next = [...prev, json];
+      // Cap history to avoid unbounded memory growth over long sessions
+      const capped = next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+      historyRef.current = capped;
+      return capped;
     });
     redoListRef.current = [];
     setRedoList([]);
@@ -274,6 +292,7 @@ export default function Board() {
     if (fc) {
       fc.clear();
       fc.backgroundColor = bgColorRef.current;
+      fc.requestRenderAll();
       saveHistoryState(fc);
       const activeSocket = socketStateRef.current;
       const activeSessionId = sessionIdRef.current;
@@ -286,6 +305,9 @@ export default function Board() {
   async function handleExport() {
     const fc = fabricRef.current;
     if (!fc) return;
+
+    // Snapshot page index NOW — async operations below may change React state
+    const pageIndexSnapshot = currentPageIndex;
 
     // Save current active screen state
     saveCurrentPage();
@@ -305,11 +327,10 @@ export default function Board() {
          format: [fc.width, fc.height]
        });
 
-       // We temporarily load each page into the canvas to get its image representation
-       // Since users want their PDF instantly, we await the rendering callback.
+       // Temporarily load each page into canvas to capture its image
        for (let i = 0; i < pages.length; i++) {
          const p = pages[i];
-         const pageState = i === currentPageIndex ? fc.toJSON() : p.state;
+         const pageState = i === pageIndexSnapshot ? fc.toJSON() : p.state;
 
          await new Promise((resolve) => {
            if (!pageState) {
@@ -333,8 +354,8 @@ export default function Board() {
 
        pdf.save(`WriteCast-Notes-${sessionId}.pdf`);
 
-       // Restore back the original view
-       loadPage(currentPageIndex);
+       // Restore back the original view using the snapshotted index
+       loadPage(pageIndexSnapshot);
     }
   }
 
@@ -355,8 +376,12 @@ export default function Board() {
 
     const handleResize = () => {
       fc.setDimensions({ width: parent.clientWidth, height: parent.clientHeight });
+      fc.requestRenderAll();
     };
     window.addEventListener('resize', handleResize);
+    // Fire immediately so canvas fills container on first mount
+    // (clientWidth/Height can be 0 before CSS layout completes)
+    requestAnimationFrame(handleResize);
 
     // Initial history save
     saveHistoryState(fc);
@@ -690,7 +715,7 @@ export default function Board() {
         stroke: dc, strokeWidth: dw, fill: 'transparent',
         strokeLineCap: 'round', strokeLineJoin: 'round',
         selectable: toolRef.current === 'select', evented: toolRef.current === 'select',
-        originX: 'center', originY: 'center', padding: 10
+        padding: 10
       });
       fc.add(polyline);
       activeRemoteObj.current = polyline;
@@ -742,30 +767,34 @@ export default function Board() {
       }
     });
 
-        socket.on('draw-end', ({ path, padWidth, padHeight } = {}) => {
-      if (activeRemoteObj.current) {
-        fc.remove(activeRemoteObj.current);
-        activeRemoteObj.current = null;
-      }
-      if (path && padWidth && padHeight) {
-        fabric.util.enlivenObjects([path]).then((enlivened) => {
-          const pathObj = enlivened[0];
-          const scaleX = fc.width / padWidth;
-          const scaleY = fc.height / padHeight;
-          pathObj.set({
-            scaleX: (pathObj.scaleX || 1) * scaleX,
-            scaleY: (pathObj.scaleY || 1) * scaleY,
-            left: (pathObj.left || 0) * scaleX,
-            top: (pathObj.top || 0) * scaleY,
-            selectable: toolRef.current === 'select',
-            evented: toolRef.current === 'select'
+    socket.on('draw-end', ({ path, padWidth, padHeight } = {}) => {
+      // queueMicrotask ensures any still-in-flight draw-batch frames are processed
+      // before we remove the live preview polyline, preventing a null-ref crash
+      queueMicrotask(() => {
+        if (activeRemoteObj.current) {
+          fc.remove(activeRemoteObj.current);
+          activeRemoteObj.current = null;
+        }
+        if (path && padWidth && padHeight) {
+          fabric.util.enlivenObjects([path]).then((enlivened) => {
+            const pathObj = enlivened[0];
+            const scaleX = fc.width / padWidth;
+            const scaleY = fc.height / padHeight;
+            pathObj.set({
+              scaleX: (pathObj.scaleX || 1) * scaleX,
+              scaleY: (pathObj.scaleY || 1) * scaleY,
+              left: (pathObj.left || 0) * scaleX,
+              top: (pathObj.top || 0) * scaleY,
+              selectable: toolRef.current === 'select',
+              evented: toolRef.current === 'select'
+            });
+            fc.add(pathObj);
+            saveHistoryState(fc);
+            fc.requestRenderAll();
           });
-          fc.add(pathObj);
-          saveHistoryState(fc);
-          fc.requestRenderAll();
-        });
-      }
-      drawRafPending = false;
+        }
+        drawRafPending = false;
+      });
     });
 
     socket.on('shape-start', ({ shape, x, y, color: sc, lineWidth: sw, fill }) => {
@@ -778,9 +807,12 @@ export default function Board() {
       else if (shape === 'circle') s = new fabric.Circle({ ...common, radius: 0, originX: 'center', originY: 'center' });
       else if (shape === 'triangle') s = new fabric.Triangle({ ...common, width: 0, height: 0 });
       else if (shape === 'line') s = new fabric.Line([ax(x), ay(y), ax(x), ay(y)], common);
-      
-      fc.add(s);
-      activeRemoteObj.current = { shapeObj: s, startX: ax(x), startY: ay(y), shape };
+
+      // Guard: s is undefined if shape type is unrecognized — don't crash
+      if (s) {
+        fc.add(s);
+        activeRemoteObj.current = { shapeObj: s, startX: ax(x), startY: ay(y), shape };
+      }
     });
 
     socket.on('shape-preview', ({ x2, y2 }) => {
@@ -820,6 +852,7 @@ export default function Board() {
       });
       fc.add(textObj);
       saveHistoryState(fc);
+      fc.requestRenderAll();
     });
 
     socket.on('laser-start', d => setLaserPos({ x: d.x, y: d.y }));
@@ -857,12 +890,47 @@ export default function Board() {
       });
     });
 
+    socket.on('object:added', ({ obj }) => {
+      if (!obj) return;
+      fabric.util.enlivenObjects([obj]).then((enlivened) => {
+        const enlivenedObj = enlivened[0];
+        if (!enlivenedObj) return;
+        enlivenedObj.set({
+          selectable: toolRef.current === 'select',
+          evented: toolRef.current === 'select',
+        });
+        fc.add(enlivenedObj);
+        saveHistoryState(fc);
+        fc.requestRenderAll();
+      });
+    });
+
+    socket.on('object:modified', ({ obj }) => {
+      if (!obj) return;
+      // Fabric doesn't auto-assign .id, so matching by id always fails.
+      // Re-enliven the serialised object and add it as an updated version instead.
+      fabric.util.enlivenObjects([obj]).then((enlivened) => {
+        const enlivenedObj = enlivened[0];
+        if (!enlivenedObj) return;
+        enlivenedObj.set({
+          selectable: toolRef.current === 'select',
+          evented: toolRef.current === 'select',
+        });
+        fc.add(enlivenedObj);
+        saveHistoryState(fc);
+        fc.requestRenderAll();
+      });
+    });
+
     return () => {
       socket.off('draw-start'); socket.off('draw'); socket.off('draw-end');
+      socket.off('draw-batch');
+      socket.off('request-snapshot'); socket.off('snapshot');
       socket.off('shape-start'); socket.off('shape-preview'); socket.off('shape-end');
       socket.off('laser-start'); socket.off('laser-move'); socket.off('laser-end');
       socket.off('clear-board'); socket.off('undo'); socket.off('redo'); socket.off('add-text');
       socket.off('set-tool'); socket.off('zoom-in'); socket.off('zoom-out'); socket.off('zoom-reset'); socket.off('add-image');
+      socket.off('object:added'); socket.off('object:modified');
     };
   }, [socket]);
 
@@ -1011,7 +1079,7 @@ export default function Board() {
             min="1" 
             max="50" 
             value={lineWidth} 
-            onChange={(e) => setLineWidth(e.target.value)}
+            onChange={(e) => setLineWidth(Number(e.target.value))}
             className="w-20 accent-blue-500 cursor-pointer absolute -rotate-90"
             title="Size"
           />
@@ -1119,7 +1187,8 @@ export default function Board() {
             : 'bg-white border-slate-200'
         }`}>
           <div className="bg-white p-5 rounded-3xl shadow-inner border border-slate-100">
-            <QRCode value={padUrl} size={180} />
+            {/* Guard: QRCode throws on empty string — padUrl resolves asynchronously */}
+            {padUrl && <QRCode value={padUrl} size={180} />}
           </div>
           
           <div className="text-center space-y-2">
